@@ -1,0 +1,89 @@
+name: macOS Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: macos-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: macos-26
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ github.ref_name }}
+      BUILD_NUMBER: ${{ github.run_number }}
+      SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release configuration
+        env:
+          SPARKLE_KEY: ${{ secrets.SPARKLE_KEY }}
+        run: |
+          [[ "$GITHUB_REF" == refs/tags/* && "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          test -n "$SPARKLE_PUBLIC_KEY"
+          test -n "$SPARKLE_KEY"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - run: brew install xcodegen
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: python3 -m pip install cryptography markdown
+      - run: python3 scripts/ci/test_validate_appcast.py
+      - uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.P12_PASSWORD }}
+      - name: Archive and sign
+        env:
+          SIGNING_CERTIFICATE_NAME: ${{ secrets.SIGNING_CERTIFICATE_NAME }}
+        run: |
+          xcodegen generate --spec ios/project.yml
+          xcodebuild -project ios/Lumik.xcodeproj -scheme Lumik -configuration Release -destination 'generic/platform=macOS' -archivePath output/output.xcarchive -derivedDataPath output/DerivedData CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$SIGNING_CERTIFICATE_NAME" OTHER_CODE_SIGN_FLAGS='--options=runtime --timestamp' ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION="${VERSION#v}" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" SPARKLE_PUBLIC_KEY="$SPARKLE_PUBLIC_KEY" archive
+          bash scripts/ci/sign-sparkle.sh
+      - name: Package and notarize
+        run: bash scripts/ci/notary.sh
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PWD: ${{ secrets.APPLE_ID_PWD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SIGNING_CERTIFICATE_NAME: ${{ secrets.SIGNING_CERTIFICATE_NAME }}
+      - name: Prepare release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --verify-tag --draft --generate-notes --title "Lumik $VERSION"
+          gh release view "$VERSION" --json body --jq .body > output/release-notes.md
+      - name: Generate and verify signed feed
+        env:
+          SPARKLE_KEY: ${{ secrets.SPARKLE_KEY }}
+        run: |
+          export RELEASE_NOTE="$(cat output/release-notes.md)"
+          bash scripts/ci/generate-appcast.sh
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$VERSION" Lumik.dmg --clobber
+          gh release edit "$VERSION" --draft=false
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: output/pages
+  deploy:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment

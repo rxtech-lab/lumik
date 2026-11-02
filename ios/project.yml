@@ -5,6 +5,9 @@ options:
     iOS: '26.0'
     macOS: '26.0'
 packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.8.0
   RxAuthSwift:
     url: https://github.com/rxtech-lab/RxAuthSwift
     from: 1.2.1
@@ -29,6 +32,8 @@ targets:
     supportedDestinations: [iOS, macOS]
     sources: [Lumik]
     dependencies:
+      - package: Sparkle
+        destinationFilters: [macOS]
       - package: RxAuthSwift
         product: RxAuthSwift
       - package: RxAuthSwift
@@ -36,6 +41,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.rxlab.lumik
+        CODE_SIGN_ENTITLEMENTS[sdk=macosx*]: Configuration/Lumik-macOS.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
         TARGETED_DEVICE_FAMILY: '1,2'
         INFOPLIST_KEY_NSCameraUsageDescription: Scan documents and combine their pages into a PDF.
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -50,6 +57,9 @@ targets:
     info:
       path: Generated/Info.plist
       properties:
+        SUFeedURL: https://update.lumik.dev/appcast.xml
+        SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
+        SUEnableInstallerLauncherService: true
         NSLocalNetworkUsageDescription: Discover and connect to scanners on your local network.
         ScannerAPIURL: $(SCANNER_API_URL)
         RxLabClientID: $(RXLAB_CLIENT_ID)

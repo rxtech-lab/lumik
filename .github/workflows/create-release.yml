@@ -1,0 +1,31 @@
+name: Create Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable version tag (v1.2.3)'
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: create-release
+  cancel-in-progress: false
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create tag and draft release, then dispatch distribution
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET: ${{ github.sha }}
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          gh api --method POST "repos/$REPOSITORY/git/refs" -f ref="refs/tags/$VERSION" -f sha="$TARGET"
+          gh release create "$VERSION" --repo "$REPOSITORY" --verify-tag --draft --generate-notes --title "Lumik $VERSION"
+          # GITHUB_TOKEN-created tags do not trigger push workflows.
+          gh workflow run macos-release.yml --repo "$REPOSITORY" --ref "$VERSION"
