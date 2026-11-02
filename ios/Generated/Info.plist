@@ -53,6 +53,12 @@
 	<string>$(RXLAB_CLIENT_ID)</string>
 	<key>RxLabIssuer</key>
 	<string>https://auth.rxlab.app</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://update.lumik.dev/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>$(SPARKLE_PUBLIC_KEY)</string>
 	<key>ScannerAPIURL</key>
 	<string>$(SCANNER_API_URL)</string>
 	<key>UISupportedInterfaceOrientations</key>

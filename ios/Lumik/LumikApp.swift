@@ -1,7 +1,16 @@
 import RxAuthSwiftUI
 import SwiftUI
+#if os(macOS)
+import Sparkle
+#endif
 
 @main struct LumikApp: App {
+  #if os(macOS)
+  private let updater = SPUStandardUpdaterController(
+    startingUpdater: Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String != nil
+      && !(Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String ?? "").isEmpty,
+    updaterDelegate: nil, userDriverDelegate: nil)
+  #endif
   @State private var store = AppStore()
   var body: some Scene {
     WindowGroup {
@@ -9,6 +18,13 @@ import SwiftUI
         .onOpenURL { url in if url.isFileURL { store.pendingImport = url } }
         .task { if !store.isPreview { await store.auth.checkExistingAuth() } }
     }
+    #if os(macOS)
+    .commands {
+      CommandGroup(after: .appInfo) {
+        UpdateCheckButton(controller: updater)
+      }
+    }
+    #endif
   }
 }
 extension Color {
@@ -54,11 +70,15 @@ struct RootView: View {
             Tab("Account", systemImage: "person.crop.circle", value: 2) { AccountView() }
             // Wider screens keep Buddy in the right-hand column instead.
             if sizeClass == .compact {
+              #if compiler(>=6.4)
               if #available(iOS 27.0, *) {
                 Tab("Buddy", systemImage: "sparkles", value: 1, role: .prominent) { ChatView() }
               } else {
                 Tab("Buddy", systemImage: "sparkles", value: 1, role: .search) { ChatView() }
               }
+              #else
+              Tab("Buddy", systemImage: "sparkles", value: 1, role: .search) { ChatView() }
+              #endif
             }
           }.onChange(of: tab) { Haptics.tap() }
             .onChange(of: sizeClass) { if sizeClass != .compact && tab == 1 { tab = 0 } }
@@ -148,3 +168,15 @@ struct AccountView: View {
     }
   }
 }
+
+#if os(macOS)
+private struct UpdateCheckButton: View {
+  let controller: SPUStandardUpdaterController
+  @State private var canCheck = false
+  var body: some View {
+    Button("Check for Updates…") { controller.checkForUpdates(nil) }
+      .disabled(!canCheck)
+      .onReceive(controller.updater.publisher(for: \.canCheckForUpdates)) { canCheck = $0 }
+  }
+}
+#endif

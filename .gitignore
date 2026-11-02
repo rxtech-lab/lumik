@@ -11,3 +11,8 @@ DerivedData/
 xcuserdata/
 ios/Configuration/Local.xcconfig
 *.tsbuildinfo
+
+# Local release output
+output/
+Lumik.dmg
+__pycache__/
