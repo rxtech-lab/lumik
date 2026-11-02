@@ -63,7 +63,8 @@ jobs:
         env:
           SPARKLE_KEY: ${{ secrets.SPARKLE_KEY }}
         run: |
-          export RELEASE_NOTE="$(cat output/release-notes.md)"
+          RELEASE_NOTE="$(cat output/release-notes.md)"
+          export RELEASE_NOTE
           bash scripts/ci/generate-appcast.sh
       - name: Publish GitHub release
         env:

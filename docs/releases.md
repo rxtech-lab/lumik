@@ -3,10 +3,25 @@
 The Git remote is `https://github.com/rxtech-lab/lumik.git`.
 
 - **Xcode Build** builds macOS and iOS Simulator on every push. It never runs UI tests.
-- **Create Release** is manually dispatched from Actions with a stable `vX.Y.Z` tag. It creates a draft release and explicitly dispatches macOS Release at the tag (GitHub's built-in token cannot trigger another push workflow).
+- **Create Release** previews the next version on pushes to `main`. Manually dispatch it on `main` to have semantic-release analyze commits since the last release, select the version, generate release notes, and create a `vX.Y.Z` tag and draft release. No version input is needed. It explicitly dispatches macOS Release at the new tag (GitHub's built-in token cannot trigger another push workflow). Other branches cannot publish through this workflow.
 - **macOS Release** also runs for independently pushed `v*` tags. Only stable semantic versions are accepted. It archives a universal Mac app, signs Sparkle helpers, notarizes/staples the app and DMG, validates the Ed25519 feed signature, publishes the GitHub release, and deploys the update site.
 
 XcodeGen (`ios/project.yml`) is the source of truth for the Xcode project. Use `xcodegen generate --spec ios/project.yml` after changes. Sparkle is filtered to macOS. Debug/local builds without a public key do not start the updater.
+
+## Commit-driven versions
+
+The root `.releaserc` configures commit analysis, release notes, and draft GitHub releases. Use conventional commit messages:
+
+- `fix: correct PDF import` produces a patch release.
+- `feat: add scanner discovery` produces a minor release.
+- A `BREAKING CHANGE:` footer produces a major release.
+- `docs:`, `chore:`, and `ci:` alone do not produce a release.
+
+The highest applicable change determines the next version. Without an existing release tag, semantic-release starts at `1.0.0`; the unreleased `0.1.0` in project/package metadata does not establish a release baseline. If there are no releasable commits, no tag, draft, or distribution run is created.
+
+The macOS workflow stamps `MARKETING_VERSION` from the selected tag and uses its run number for `CURRENT_PROJECT_VERSION`. It publishes the draft only after signing, notarization, and feed verification. Version bumps are not committed back to the source tree. If distribution fails after creating the draft, rerun the failed macOS Release run, or manually dispatch macOS Release at that existing tag.
+
+This flow uses the built-in `GITHUB_TOKEN` with contents/actions write permissions; `RELEASE_TOKEN` is not required. Issue and pull-request release comments are disabled.
 
 ## GitHub configuration
 
