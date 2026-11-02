@@ -3,7 +3,29 @@
     "solid" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
   },
   "groups" : [
-
+    {
+      "layers" : [
+        {
+          "fill" : "system-light",
+          "glass" : false,
+          "image-name" : "scanning-mark.png",
+          "name" : "scanning-mark"
+        },
+        {
+          "glass" : false,
+          "image-name" : "coral-background.png",
+          "name" : "coral-background"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    }
   ],
   "supported-platforms" : {
     "circles" : [
