@@ -6,7 +6,7 @@ export default async function Home() {
     return <>
         <a className="skip-link" href="#main">Skip to content</a>
         <header className="site-header wrap">
-            <a className="brand" href="#" aria-label="Lumik home"><span className="brand-mark" aria-hidden="true">✳</span> lumik<span className="brand-dot">.</span></a>
+            <a className="brand" href="#" aria-label="Lumik home"><img className="brand-icon" src="/icon.png" width="40" height="40" alt="" /> lumik<span className="brand-dot">.</span></a>
             <nav aria-label="Main navigation"><a href="#features">Why Lumik</a><a href="#how-it-works">How it works</a></nav>
             <DownloadButton release={release} compact />
         </header>
@@ -40,6 +40,6 @@ export default async function Home() {
             <section className="workflow wrap" id="how-it-works" aria-labelledby="workflow-title"><div><span className="eyebrow">A SIMPLE LITTLE ROUTINE</span><h2 id="workflow-title">In with the paper.<br />Out with the busywork.</h2><p>Give your documents a place to belong.<br />Lumik takes it from there.</p></div><ol><li><span>01</span><div><h3>Make a space.</h3><p>Create a group for receipts, invoices, or anything you keep. Choose the details that matter.</p></div></li><li><span>02</span><div><h3>Drop it in.</h3><p>Scan or upload a PDF. Extraction and naming start automatically.</p></div></li><li><span>03</span><div><h3>Carry on.</h3><p>Review the details, ask Buddy a question, or export your group when you need it.</p></div></li></ol></section>
             <section className="closing wrap"><span className="closing-star" aria-hidden="true">✳</span><span className="eyebrow">A LIGHTER WAY TO KEEP THINGS</span><h2>A fresh start for<br />your paper trail.</h2><DownloadButton release={release} /><p>Built for Mac, iPhone, and iPad.</p></section>
         </main>
-        <footer className="wrap"><a className="brand" href="#">lumik<span className="brand-dot">.</span></a><p>A little order. A little light.</p><a href={release.notes}>Releases <span aria-hidden="true">↗</span></a><span>Made by RxLab</span></footer>
+        <footer className="wrap"><a className="brand" href="#"><img className="brand-icon" src="/icon.png" width="40" height="40" alt="" />lumik<span className="brand-dot">.</span></a><p>A little order. A little light.</p><a href={release.notes}>Releases <span aria-hidden="true">↗</span></a><span>Made by RxLab</span></footer>
     </>;
 }

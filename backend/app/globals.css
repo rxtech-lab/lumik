@@ -58,10 +58,11 @@ button {
     display:inline-flex;
     align-items:center
 }
-.brand-mark {
-    color:#d55e36;
-    font-size:42px;
-    margin-right:9px
+.brand-icon {
+    width:40px;
+    height:40px;
+    border-radius:10px;
+    margin-right:10px;
 }
 .brand-dot {
     color:#d55e36
