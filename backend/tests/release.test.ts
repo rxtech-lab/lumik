@@ -11,13 +11,22 @@ describe('landing page release availability', () => {
         })));
         expect(await getAppRelease()).toEqual({ version: '1.2.3', download, notes: 'https://github.com/rxtech-lab/lumik/releases/tag/v1.2.3' });
     });
+    it('shows the GitHub version before an installer is uploaded', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
+            tag_name: 'v2.0.0', assets: [],
+        })));
+        expect(await getAppRelease()).toEqual({
+            version: '2.0.0', download: null,
+            notes: 'https://github.com/rxtech-lab/lumik/releases/tag/v2.0.0',
+        });
+    });
     it('does not invent an installer when there are no releases', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
-        expect((await getAppRelease()).download).toBeNull();
+        expect(await getAppRelease()).toMatchObject({ version: null, download: null });
     });
     it('keeps the page available during a network outage', async () => {
         vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
-        expect((await getAppRelease()).download).toBeNull();
+        expect(await getAppRelease()).toMatchObject({ version: null, download: null });
     });
     it('does not offer untrusted asset URLs', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({

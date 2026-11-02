@@ -1,6 +1,8 @@
 import { DownloadButton } from './download-button';
 import { getAppRelease } from '../lib/release';
 
+export const revalidate = 300;
+
 export default async function Home() {
     const release = await getAppRelease();
     return <>
@@ -17,7 +19,7 @@ export default async function Home() {
                     <h1 id="hero-title">A little clarity.<br />A lot less <span>clutter.</span></h1>
                     <p className="hero-description">Meet a brighter home for your documents. Scan the paper, find the details, and let Lumik put everything in its place.</p>
                     <div className="hero-actions"><DownloadButton release={release} /><a className="text-link" href="#how-it-works">Take a look <span aria-hidden="true">↓</span></a></div>
-                    <p className="release-caption"><span className="status-dot" />v{release.version} <span>·</span> {release.download ? 'Available for Mac' : 'Mac release in preparation'}</p>
+                    <p className="release-caption"><span className="status-dot" />{release.version ? `v${release.version}` : 'Check GitHub for the latest release'} <span>·</span> {release.download ? 'Available for Mac' : 'Mac release in preparation'}</p>
                 </div>
                 <div className="hero-art">
                     <div className="art-orbit" aria-hidden="true" />
