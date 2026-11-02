@@ -268,9 +268,6 @@ struct GroupDetailView: View {
               importing = true
             }
             Divider()
-            Button("New statistics with Buddy", systemImage: "chart.bar.xaxis") {
-              store.askBuddy("Create a statistics view for this group showing ")
-            }
             Button("Edit group", systemImage: "slider.horizontal.3") {
               editing = true
               Haptics.tap()

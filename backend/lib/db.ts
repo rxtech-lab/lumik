@@ -25,6 +25,7 @@ export async function migrate(client = db()) {
     CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE, owner TEXT NOT NULL, name TEXT NOT NULL, original_name TEXT NOT NULL, storage_key TEXT NOT NULL, size INTEGER NOT NULL, status TEXT NOT NULL, data_json TEXT, error TEXT, processing_started_at TEXT, created_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS documents_group ON documents(owner,group_id);
     CREATE TABLE IF NOT EXISTS proposals (id TEXT PRIMARY KEY, owner TEXT NOT NULL, mutation TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS pdf_uploads (id TEXT PRIMARY KEY, owner TEXT NOT NULL, group_id TEXT NOT NULL, name TEXT NOT NULL, size INTEGER NOT NULL, staging_key TEXT NOT NULL, expires_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS gc (storage_key TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS group_views (id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE, owner TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, spec_json TEXT NOT NULL, queries_json TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS group_views_group ON group_views(owner,group_id);
@@ -32,4 +33,12 @@ export async function migrate(client = db()) {
   await addColumn(client, 'groups', 'extract_additional', 'INTEGER NOT NULL DEFAULT 0');
   await addColumn(client, 'documents', 'additional_json', 'TEXT');
   await addColumn(client, 'groups', 'deleted_at', 'TEXT');
+}
+
+export async function expirePDFUploads(client = db()) {
+    const cutoff = Date.now() - 60_000;
+    await client.batch([
+        { sql: 'INSERT OR IGNORE INTO gc SELECT staging_key FROM pdf_uploads WHERE expires_at<?', args: [cutoff] },
+        { sql: 'DELETE FROM pdf_uploads WHERE expires_at<?', args: [cutoff] },
+    ], 'write');
 }

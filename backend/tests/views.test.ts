@@ -213,3 +213,18 @@ describe('migration', () => {
         old.close();
     });
 });
+
+describe('saved statistics post-processing', () => {
+    it('persists and recomputes scripts over scoped SQL rows', async () => {
+        const saved = await alice.createView(groupId, { ...statistic, spec: { ...spec, postProcess: 'return { doubled: queries.total[0].sum * 2 };' } });
+        const loaded = await alice.view(groupId, saved.id);
+        expect(await alice.viewState(groupId, loaded)).toMatchObject({ processed: { doubled: 2339 } });
+        await expect(bob.viewState(groupId, loaded)).rejects.toMatchObject({ status: 404 });
+    });
+    it('rejects invalid scripts before saving', async () => {
+        for (const postProcess of ['return [];', 'throw new Error("bad script");', 'return fetch("https://example.com");']) {
+            await expect(alice.createView(groupId, { ...statistic, spec: { ...spec, postProcess } })).rejects.toMatchObject({ status: 422 });
+        }
+        expect(await alice.views(groupId)).toEqual([]);
+    });
+});
