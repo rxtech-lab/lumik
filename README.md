@@ -33,7 +33,7 @@ For local development, `.env.example` uses a local libSQL file and local PDF dir
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | Turso database connection; local `file:` URL supported |
 | `AUTH_ISSUER` | RxLab issuer, normally `https://auth.rxlab.app` |
 | `RXLAB_ALLOWED_CLIENT_IDS` | Comma-separated public Apple/MCP OAuth client IDs allowed to call the API |
-| `AI_GATEWAY_API_KEY` | Vercel AI Gateway credential |
+| `AI_GATEWAY_API_KEY` | Optional API key for local/non-Vercel use; Vercel deployments authenticate automatically with OIDC |
 | `AI_MODEL` | Defaults to `openai/gpt-6-luna`; no silent model substitution |
 | `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT` | Private object storage; endpoint optional for AWS |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Storage credentials, or use a deployment IAM role |

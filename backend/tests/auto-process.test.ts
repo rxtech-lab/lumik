@@ -13,7 +13,7 @@ const draft = { name: 'Invoices', instructions: 'Extract invoice details', namin
 let dir: string;
 let client: Client;
 let repo: Repository;
-beforeEach(async () => { vi.stubEnv('AI_GATEWAY_API_KEY', 'test'); dir = mkdtempSync(join(tmpdir(), 'scanner-test-')); client = createClient({ url: 'file:' + join(dir, 'test.db') }); await migrate(client); repo = new Repository('alice', client); });
+beforeEach(async () => { vi.stubEnv('AI_GATEWAY_API_KEY', undefined); dir = mkdtempSync(join(tmpdir(), 'scanner-test-')); client = createClient({ url: 'file:' + join(dir, 'test.db') }); await migrate(client); repo = new Repository('alice', client); });
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); client.close(); rmSync(dir, { recursive: true, force: true }); });
 async function claimedUpload() {
     const group = await repo.createGroup(draft);
@@ -22,7 +22,7 @@ async function claimedUpload() {
     return doc.id;
 }
 describe('automatic processing after upload', () => {
-    it('fills the fields and renames the PDF from its content', async () => {
+    it('fills fields and renames the PDF without an explicit Gateway API key', async () => {
         vi.mocked(generateText).mockResolvedValue({ output: { title: 'March invoice', fields: { vendor: 'Acme' } } } as never);
         const id = await claimedUpload();
         await processUploadedDocument(repo, id);
