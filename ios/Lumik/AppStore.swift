@@ -47,7 +47,7 @@ import SwiftUI
     let info = Bundle.main.infoDictionary ?? [:]
     let clientID = info["RxLabClientID"] as? String ?? "unconfigured"
     configured = !clientID.isEmpty && clientID != "unconfigured" && !clientID.contains("$(")
-    baseURL = URL(string: info["ScannerAPIURL"] as? String ?? "https://lumik.dev")!
+    baseURL = URL(string: info["ScannerAPIURL"] as? String ?? "https://www.lumik.dev")!
     let tokens = KeychainTokenStorage(serviceName: "app.rxlab.scannerbuddy.auth")
     self.tokens = tokens
     auth = OAuthManager(

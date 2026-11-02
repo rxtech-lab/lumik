@@ -1,6 +1,6 @@
 // Register a public OAuth client with redirect scannerbuddy://oauth/callback.
 RXLAB_CLIENT_ID = client_fe59446c23694e09bbe51111209f571a
-// Debug and Release default to https://lumik.dev.
+// Debug and Release default to https://www.lumik.dev.
 // Uncomment to override both configurations (use your Mac's LAN IP for a physical device).
 // SCANNER_API_URL = http:/$()/192.168.1.100:3000
 DEVELOPMENT_TEAM = YOUR_TEAM_ID
