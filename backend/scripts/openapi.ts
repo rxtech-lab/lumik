@@ -17,8 +17,10 @@ route('/groups/{groupId}', 'delete', 'Move group to the Recycle Bin; it is perma
 route('/deleted-groups', 'get', 'List groups in the Recycle Bin', { type: 'array', items: ref('DeletedGroup') });
 route('/deleted-groups/{groupId}', 'delete', 'Permanently delete a group from the Recycle Bin and queue private PDFs for deletion');
 route('/deleted-groups/{groupId}/restore', 'post', 'Restore a group from the Recycle Bin', ref('Group'));
+route('/groups/{groupId}/uploads', 'post', 'Create a ten-minute presigned PDF PUT URL (local disk returns mode local)', object, { type: 'object', required: ['name', 'size'], properties: { name: { type: 'string', maxLength: 255 }, size: { type: 'integer', minimum: 5, maximum: 20971520 } } });
+route('/groups/{groupId}/uploads/{uploadId}/complete', 'post', 'Verify uploaded PDF and start processing', ref('Document'), undefined, 201);
 route('/groups/{groupId}/documents', 'get', 'List documents', { type: 'array', items: ref('Document') });
-route('/groups/{groupId}/documents', 'post', 'Upload a PDF, maximum 20 MB; it is extracted and renamed automatically, so poll until status leaves processing', ref('Document'), undefined, 201);
+route('/groups/{groupId}/documents', 'post', 'Upload a PDF; it is extracted and renamed automatically, so poll until status leaves processing', ref('Document'), undefined, 201);
 (paths['/groups/{groupId}/documents'].post as Record<string, unknown>).requestBody = { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } } } };
 route('/groups/{groupId}/export', 'get', 'Download all PDFs and JSON manifest, maximum total 100 MB', { type: 'string', format: 'binary' }, undefined, 200, 'application/zip');
 route('/documents/{documentId}', 'get', 'Read document', ref('Document'));

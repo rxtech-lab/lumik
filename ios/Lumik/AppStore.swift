@@ -92,7 +92,8 @@ import SwiftUI
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       let message = (try? JSONValue.parse(String(decoding: data, as: UTF8.self)))?.object["error"]?
         .string
-      throw APIError(message: message ?? "The server could not complete this request.")
+      let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+      throw APIError(message: message ?? (status == 413 ? "The upload exceeds the server size limit." : "The server could not complete this request (HTTP \(status))."))
     }
     return data
   }
@@ -300,9 +301,25 @@ import SwiftUI
     await refresh()
   }
   func upload(_ data: Data, name: String, groupID: String) async throws {
-    guard data.count <= 20 * 1024 * 1024 else {
-      throw APIError(message: "Choose a PDF smaller than 20 MB.")
+    struct UploadTicket: Decodable { let mode: String; let id: String?; let url: URL? }
+    let ticketBody = try JSONSerialization.data(withJSONObject: ["name": name, "size": data.count])
+    let ticket = try JSONDecoder().decode(UploadTicket.self, from: await request(
+      "groups/\(groupID)/uploads", method: "POST", body: ticketBody))
+    if ticket.mode == "direct", let id = ticket.id, let url = ticket.url {
+      var upload = URLRequest(url: url)
+      upload.httpMethod = "PUT"
+      upload.timeoutInterval = 300
+      upload.setValue("application/pdf", forHTTPHeaderField: "Content-Type")
+      let (_, response) = try await URLSession.shared.upload(for: upload, from: data)
+      guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        throw APIError(message: "PDF upload failed. Please save again to retry.")
+      }
+      _ = try await request("groups/\(groupID)/uploads/\(id)/complete", method: "POST")
+      await loadDocuments(groupID)
+      await refresh()
+      return
     }
+    guard ticket.mode == "local" else { throw APIError(message: "Invalid upload response.") }
     let boundary = UUID().uuidString
     var body = Data(
       "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(name.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "\r", with: "").replacingOccurrences(of: "\n", with: ""))\"\r\nContent-Type: application/pdf\r\n\r\n"

@@ -1,8 +1,9 @@
 import './env';
-import { db } from '../lib/db';
+import { db, expirePDFUploads } from '../lib/db';
 import { purgeExpiredGroups } from '../lib/repository';
 import { removePDF } from '../lib/storage';
 await purgeExpiredGroups();
+    await expirePDFUploads();
 const rows = await db().execute('SELECT storage_key FROM gc LIMIT 1000');
 let failed = 0;
 for (const row of rows.rows) {

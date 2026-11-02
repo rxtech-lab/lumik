@@ -3,6 +3,7 @@ import SwiftUI
 import ImageCaptureCore
 import PDFKit
 import UniformTypeIdentifiers
+import OSLog
 
 struct ScannedDocument: Identifiable {
   let id = UUID()
@@ -12,10 +13,64 @@ struct ScannedDocument: Identifiable {
   let incomplete: Bool
 }
 
+/// Owns the app's only device browser and is never stopped: once any
+/// `ICDeviceBrowser` in the process has been stopped, browsers started later
+/// report every device as removed and re-added about once a second.
+@MainActor
+private final class ScannerBrowser: NSObject, @preconcurrency ICDeviceBrowserDelegate {
+  static let shared = ScannerBrowser()
+  private let browser = ICDeviceBrowser()
+  private var started = false
+  private weak var owner: DesktopScanner?
+
+  func attach(_ owner: DesktopScanner) {
+    self.owner = owner
+    guard started else {
+      started = true
+      browser.delegate = self
+      browser.browsedDeviceTypeMask = ICDeviceTypeMask(rawValue: ICDeviceTypeMask.scanner.rawValue | ICDeviceLocationTypeMask.local.rawValue | ICDeviceLocationTypeMask.remote.rawValue)!
+      browser.start()
+      return
+    }
+    // Add events are not repeated, so hand over devices that are already known.
+    for device in browser.devices ?? [] { owner.browserDidAdd(device) }
+  }
+
+  func detach(_ owner: DesktopScanner) {
+    if self.owner === owner { self.owner = nil }
+  }
+
+  func deviceBrowser(_ browser: ICDeviceBrowser, didAdd device: ICDevice, moreComing: Bool) {
+    owner?.browserDidAdd(device)
+  }
+
+  func deviceBrowser(_ browser: ICDeviceBrowser, didRemove device: ICDevice, moreGoing: Bool) {
+    owner?.browserDidRemove(device)
+  }
+}
+
 /// Image Capture delegates deliver callbacks on the main thread.
 @MainActor @Observable
-final class DesktopScanner: NSObject, @preconcurrency ICDeviceBrowserDelegate,
-  @preconcurrency ICScannerDeviceDelegate {
+final class DesktopScanner: NSObject, @preconcurrency ICScannerDeviceDelegate {
+  private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Lumik", category: "DesktopScanner")
+  private let diagnosticID = UUID().uuidString
+  private var diagnosticSequence = 0
+
+  /// Object identities correlate rediscovery without logging serial numbers or document paths.
+  private func log(_ event: String, device: ICDevice? = nil, failure: Error? = nil) {
+    diagnosticSequence += 1
+    let target = device ?? selected
+    let identity = target.map { String(describing: ObjectIdentifier($0)) } ?? "none"
+    let selectedIdentity = selected.map { String(describing: ObjectIdentifier($0)) } ?? "none"
+    let state = "instance=\(diagnosticID) seq=\(diagnosticSequence) event=\(event) device=\(identity) selected=\(selectedIdentity) open=\(target?.hasOpenSession ?? false) ready=\(ready) running=\(running) scanning=\(scanning) processing=\(processing) pages=\(pageCount) pending=\(pendingPages.count) devices=\(devices.count)"
+    if let failure {
+      let error = failure as NSError
+      Self.logger.error("\(state, privacy: .public) errorDomain=\(error.domain, privacy: .public) errorCode=\(error.code) description=\(error.localizedDescription, privacy: .private)")
+    } else {
+      Self.logger.notice("\(state, privacy: .public)")
+    }
+  }
+
   var devices: [ICScannerDevice] = []
   var selected: ICScannerDevice?
   var ready = false
@@ -31,9 +86,32 @@ final class DesktopScanner: NSObject, @preconcurrency ICDeviceBrowserDelegate,
   var correctWhiteBalance = true
   var autoRotateAndCrop = true
   var processing = false
+  var correctionCompleted = 0
+  var correctionTotal = 0
+  let liveFeed = ScanLiveFeed()
   private var pendingPages: [URL] = []
   var pageCount = 0
-  private let browser = ICDeviceBrowser()
+  private var discovering = false
+  private var automaticallyConnect = true
+  private(set) var connecting = false
+  private var connectionError: String?
+
+  func reconnect() {
+    guard let device = selected ?? devices.first else { return }
+    connect(device)
+  }
+
+  private func reportConnectionFailure(_ message: String) {
+    connecting = false
+    automaticallyConnect = false
+    ready = false
+    // Keep the first error until the user explicitly retries.
+    if connectionError == nil {
+      connectionError = message
+      error = message
+    }
+    status = "Scanner unavailable. Choose Reconnect to try again."
+  }
   private(set) var current = PDFDocument()
   private var pageFailure = false
   private let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Lumik-\(UUID())", isDirectory: true)
@@ -43,21 +121,40 @@ final class DesktopScanner: NSObject, @preconcurrency ICDeviceBrowserDelegate,
   var resolutions: [Int] { selected.map { Array($0.selectedFunctionalUnit.supportedResolutions) } ?? [] }
 
   func discover() {
-    browser.delegate = self
-    browser.browsedDeviceTypeMask = ICDeviceTypeMask(rawValue: ICDeviceTypeMask.scanner.rawValue | ICDeviceLocationTypeMask.local.rawValue | ICDeviceLocationTypeMask.remote.rawValue)!
-    browser.start()
+    guard !discovering else { return }
+    discovering = true
+    log("discovery.start")
+    ScannerBrowser.shared.attach(self)
   }
   func connect(_ scanner: ICScannerDevice) {
-    guard !running && !scanning && !processing else { return }
+    log("connect.request", device: scanner)
+    guard discovering, !connecting, !running, !scanning, !processing else { return }
+    guard devices.contains(where: { $0 === scanner }) else { return }
+    if selected === scanner && ready { return }
+    if error == connectionError { error = nil }
+    connectionError = nil
+    connecting = true
     ready = false
-    selected?.requestCloseSession()
+    let previous = selected
+    selected = nil
+    previous?.delegate = nil
+    if previous !== scanner {
+      log("session.closeRequested", device: previous)
+      previous?.requestCloseSession()
+    }
     selected = scanner
     scanner.delegate = self
     status = "Connecting to \(scanner.name ?? "scanner")…"
-    scanner.requestOpenSession()
+    log("session.openRequested", device: scanner)
+    if scanner.hasOpenSession { deviceDidBecomeReady(scanner) }
+    else { scanner.requestOpenSession() }
   }
   func start() {
+    log("scan.startRequested")
     guard ready, feeder != nil, !scanning, !running, !processing else { return }
+    correctionCompleted = 0
+    correctionTotal = 0
+    liveFeed.reset()
     running = true
     scanNext()
   }
@@ -79,12 +176,15 @@ final class DesktopScanner: NSObject, @preconcurrency ICDeviceBrowserDelegate,
     scanner.documentName = UUID().uuidString
     scanning = true
     status = "Scanning document \(documents.count + 1)…"
+    log("scan.request dpi=\(dpi) color=\(color) duplex=\(feeder.duplexScanningEnabled)", device: scanner)
     scanner.requestScan()
   }
   func stop() {
+    log("scan.stopRequested")
     running = false
     if scanning {
       status = "Stopping… Keeping completed pages."
+      log("scan.cancelRequested")
       selected?.cancelScan()
     } else { status = "Stopped. Scan more pages or choose Done to finish this document." }
   }
@@ -93,6 +193,7 @@ final class DesktopScanner: NSObject, @preconcurrency ICDeviceBrowserDelegate,
     guard !scanning, !processing, current.pageCount > 0 else { return false }
     saveCurrent(incomplete: pageFailure)
     guard current.pageCount == 0 else { return false }
+    liveFeed.reset()
     pageCount = 0
     pageFailure = false
     status = "Document finished. Ready to upload or start a new document."
@@ -130,63 +231,97 @@ final class DesktopScanner: NSObject, @preconcurrency ICDeviceBrowserDelegate,
     }
   }
   private func fail(_ failure: Error) {
+    log("failure", failure: failure)
     running = false
     error = failure.localizedDescription
     status = "Scanning paused. Check the scanner, then start again."
   }
   func shutdown() {
+    guard discovering else { return }
+    discovering = false
+    connecting = false
+    log("shutdown")
     stop()
-    selected?.requestCloseSession()
-    browser.stop()
+    // A newer scanner instance may already own this device; leave its session alone.
+    if let selected, selected.delegate === self {
+      log("session.closeRequested")
+      selected.requestCloseSession()
+      selected.delegate = nil
+    }
+    selected = nil
+    ready = false
+    ScannerBrowser.shared.detach(self)
+    devices.removeAll()
+    log("discovery.detach")
     try? FileManager.default.removeItem(at: directory)
   }
-  func deviceBrowser(_ browser: ICDeviceBrowser, didAdd device: ICDevice, moreComing: Bool) {
-    guard let scanner = device as? ICScannerDevice else { return }
-    devices.append(scanner)
-    if selected == nil { connect(scanner) }
+  fileprivate func browserDidAdd(_ device: ICDevice) {
+    log("browser.didAdd", device: device)
+    guard discovering, let scanner = device as? ICScannerDevice else { return }
+    if !devices.contains(where: { $0 === scanner }) { devices.append(scanner) }
+    if selected == nil && automaticallyConnect {
+      log("connect.automaticAfterDiscovery", device: scanner)
+      connect(scanner)
+    }
   }
-  func deviceBrowser(_ browser: ICDeviceBrowser, didRemove device: ICDevice, moreGoing: Bool) {
+  fileprivate func browserDidRemove(_ device: ICDevice) {
+    log("browser.didRemove", device: device)
     devices.removeAll { $0 === device }
     didRemove(device)
   }
   func didRemove(_ device: ICDevice) {
-    guard selected === device else { return }
+    log("device.didRemove", device: device)
+    guard discovering, selected === device else { return }
     stop()
-    pageFailure = pageCount > 0
+    pageFailure = pageFailure || pageCount > 0 || processing
     scanning = false
     ready = false
+    device.delegate = nil
     selected = nil
-    error = "Scanner disconnected. Completed pages have been kept. Reconnect and select the scanner again."
+    devices.removeAll { $0 === device }
+    log("disconnect.alert", device: device)
+    reportConnectionFailure("Scanner disconnected. Completed pages have been kept. Choose Reconnect when the scanner is available.")
   }
   func device(_ device: ICDevice, didOpenSessionWithError error: Error?) {
-    guard device === selected else { return }
-    if let error { fail(error) }
+    log("session.didOpen", device: device, failure: error)
+    guard discovering, device === selected else { return }
+    if let error { reportConnectionFailure(error.localizedDescription) }
   }
   func deviceDidBecomeReady(_ device: ICDevice) {
-    guard let scanner = device as? ICScannerDevice, scanner === selected else { return }
+    log("device.didBecomeReady", device: device)
+    guard discovering, connectionError == nil, let scanner = device as? ICScannerDevice, scanner === selected else { return }
     guard scanner.availableFunctionalUnitTypes.contains(NSNumber(value: ICScannerFunctionalUnitType.documentFeeder.rawValue)) else {
-      fail(APIError(message: "This workflow requires an automatic document feeder. Use Image Capture to scan from a flatbed, then import the PDF.")); return
+      reportConnectionFailure("This workflow requires an automatic document feeder. Use Image Capture to scan from a flatbed, then import the PDF."); return
     }
+    log("feeder.selectRequested", device: scanner)
     scanner.requestSelect(.documentFeeder)
   }
   func device(_ device: ICDevice, didCloseSessionWithError error: Error?) {
-    guard device === selected else { return }
+    log("session.didClose", device: device, failure: error)
+    guard discovering, device === selected else { return }
     ready = false
     if scanning { pageFailure = pageCount > 0 }
     scanning = false
     stop()
-    if let error { fail(error) }
+    reportConnectionFailure(error?.localizedDescription ?? "Scanner session closed. Choose Reconnect to try again.")
   }
   func scannerDevice(_ scanner: ICScannerDevice, didSelect functionalUnit: ICScannerFunctionalUnit, error: Error?) {
-    guard scanner === selected else { return }
-    if let error { fail(error); return }
+    log("feeder.didSelect", device: scanner, failure: error)
+    guard discovering, connectionError == nil, scanner === selected else { return }
+    if let error { reportConnectionFailure(error.localizedDescription); return }
     ready = scanner.hasOpenSession && functionalUnit is ICScannerFunctionalUnitDocumentFeeder
+    guard ready else { return }
+    connecting = false
+    if self.error == connectionError { self.error = nil }
+    connectionError = nil
     if !resolutions.contains(dpi) { dpi = resolutions.min(by: { abs($0 - 300) < abs($1 - 300) }) ?? Int(functionalUnit.resolution) }
     duplex = feeder?.supportsDuplexScanning == true
     status = "Ready. Load one document’s pages into the feeder."
   }
   func scannerDevice(_ scanner: ICScannerDevice, didScanTo url: URL) {
+    log("scan.didReceivePage", device: scanner)
     guard scanning, scanner === selected else { return }
+    correctionTotal += 1
     pendingPages.append(url)
     guard !processing else { return }
     processing = true
@@ -195,9 +330,14 @@ final class DesktopScanner: NSObject, @preconcurrency ICDeviceBrowserDelegate,
         let url = pendingPages.removeFirst()
         let whiteBalance = correctWhiteBalance
         let geometry = autoRotateAndCrop
+        let page = pageCount + 1
+        let feed = liveFeed
         status = "Correcting scanned page \(pageCount + 1)…"
         let data = await Task.detached(priority: .userInitiated) {
-          ScanImageProcessor.process(url: url, whiteBalance: whiteBalance, geometry: geometry)
+          ScanImageProcessor.process(url: url, page: page, whiteBalance: whiteBalance, geometry: geometry) { frame in
+            // The main queue is FIFO, so frames stay in pipeline order.
+            DispatchQueue.main.async { MainActor.assumeIsolated { feed.enqueue(frame) } }
+          }
         }.value
         // Keep the original page if enhancement fails; never drop a scan.
         if let image = data.flatMap({ NSImage(data: $0) }) ?? NSImage(contentsOf: url) {
@@ -207,6 +347,7 @@ final class DesktopScanner: NSObject, @preconcurrency ICDeviceBrowserDelegate,
           error = "A scanned page could not be read. This document is incomplete; rescan it before uploading."
           stop()
         }
+        correctionCompleted += 1
         try? FileManager.default.removeItem(at: url)
       }
       processing = false
@@ -230,6 +371,7 @@ final class DesktopScanner: NSObject, @preconcurrency ICDeviceBrowserDelegate,
     status = "Scanned \(pageCount) sides…"
   }
   func scannerDevice(_ scanner: ICScannerDevice, didCompleteScanWithError error: Error?) {
+    log("scan.didComplete", device: scanner, failure: error)
     guard scanning, scanner === selected else { return }
     scanning = false
     let stopped = !running

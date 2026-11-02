@@ -394,6 +394,136 @@
         }
       }
     },
+    "/groups/{groupId}/uploads": {
+      "post": {
+        "summary": "Create a ten-minute presigned PDF PUT URL (local disk returns mode local)",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "size"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 20971520
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/groups/{groupId}/uploads/{uploadId}/complete": {
+      "post": {
+        "summary": "Verify uploaded PDF and start processing",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "uploadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
     "/groups/{groupId}/documents": {
       "get": {
         "summary": "List documents",
@@ -445,7 +575,7 @@
         }
       },
       "post": {
-        "summary": "Upload a PDF, maximum 20 MB; it is extracted and renamed automatically, so poll until status leaves processing",
+        "summary": "Upload a PDF; it is extracted and renamed automatically, so poll until status leaves processing",
         "parameters": [
           {
             "name": "groupId",

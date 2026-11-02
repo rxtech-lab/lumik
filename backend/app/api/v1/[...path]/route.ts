@@ -5,14 +5,15 @@ import { z } from 'zod';
 import { principal } from '@/lib/auth';
 import { purgeExpiredGroups, Repository } from '@/lib/repository';
 import { ApiError, safeName } from '@/lib/contracts';
-import { getPDF, putPDF, removePDF } from '@/lib/storage';
+import { getPDF, putPDF, removePDF, presignPDF, promoteUpload } from '@/lib/storage';
 import { chat, chatContext, draftSchema, processDocument, processUploadedDocument } from '@/lib/ai';
-import { errorResponse, jsonBody, boundedBody } from '@/lib/http';
-import { db } from '@/lib/db';
+import { errorResponse, jsonBody } from '@/lib/http';
+import { db, expirePDFUploads } from '@/lib/db';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 async function cleanup() { try {
     await purgeExpiredGroups();
+    await expirePDFUploads();
 }
 catch { /* retried on the next mutation */ } const r = await db().execute('SELECT storage_key FROM gc LIMIT 25'); for (const row of r.rows) {
     try {
@@ -58,18 +59,42 @@ async function route(req: Request, { params }: {
             if (p.length === 3 && p[2] === 'restore' && method === 'POST')
                 return Response.json(await repo.restoreGroup(p[1]));
         }
+        if (p[0] === 'groups' && p[2] === 'uploads' && method === 'POST') {
+            await repo.group(p[1]);
+            if (p.length === 3) {
+                const input = z.object({ name: z.string().min(1).max(255), size: z.number().int().min(5) }).parse(await jsonBody(req));
+                const id = randomUUID();
+                const stagingKey = `${randomUUID()}.pdf`;
+                const url = await presignPDF(stagingKey, input.size);
+                if (!url) return Response.json({ mode: 'local' });
+                await db().execute({ sql: 'INSERT INTO pdf_uploads VALUES(?,?,?,?,?,?,?)', args: [id, repo.owner, p[1], input.name, input.size, stagingKey, Date.now() + 86_400_000] });
+                return Response.json({ mode: 'direct', id, url });
+            }
+            if (p.length === 5 && p[4] === 'complete') {
+                const pending = await db().execute({ sql: 'SELECT * FROM pdf_uploads WHERE id=? AND owner=? AND group_id=?', args: [p[3], repo.owner, p[1]] });
+                const upload = pending.rows[0];
+                if (!upload) throw new ApiError(404, 'Upload not found');
+                // Retrying completion must not create or process a second document.
+                const existing = await db().execute({ sql: 'SELECT id FROM documents WHERE id=? AND owner=?', args: [p[3], repo.owner] });
+                if (existing.rows.length) return Response.json(await repo.document(p[3]));
+                if (Number(upload.expires_at) < Date.now()) throw new ApiError(410, 'Upload expired. Save again to retry.');
+                await promoteUpload(String(upload.staging_key), `${p[3]}.pdf`, Number(upload.size));
+                await repo.addDocument(p[1], p[3], String(upload.name), Number(upload.size));
+                await db().execute({ sql: 'INSERT OR IGNORE INTO gc VALUES(?)', args: [upload.staging_key] });
+                await repo.claimDocument(p[3]);
+                after(() => processUploadedDocument(repo, p[3]));
+                return Response.json(await repo.document(p[3]), { status: 201 });
+            }
+        }
         if (p[0] === 'groups' && p[2] === 'documents' && p.length === 3) {
             if (method === 'GET')
                 return Response.json((await repo.documents(p[1])).map(({ storageKey, ...d }) => d));
             if (method === 'POST') {
                 await repo.group(p[1]);
-                if (Number(req.headers.get('content-length') ?? 0) > 21 * 1024 * 1024)
-                    throw new ApiError(413, 'PDF must be under 20 MB');
-                const uploadBytes = await boundedBody(req, 21 * 1024 * 1024);
-                const form = await new Response(Buffer.from(uploadBytes), { headers: { 'Content-Type': req.headers.get('content-type') ?? '' } }).formData();
+                const form = await req.formData();
                 const file = form.get('file');
-                if (!(file instanceof File) || file.size > 20 * 1024 * 1024 || file.size < 5)
-                    throw new ApiError(400, 'Choose a PDF under 20 MB');
+                if (!(file instanceof File) || file.size < 5)
+                    throw new ApiError(400, 'Choose a PDF');
                 const bytes = new Uint8Array(await file.arrayBuffer());
                 if (new TextDecoder().decode(bytes.slice(0, 5)) !== '%PDF-')
                     throw new ApiError(400, 'Only PDF documents are supported');

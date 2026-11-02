@@ -90,10 +90,19 @@ struct ChatThread: View {
       Image(systemName: "sparkles").font(.system(size: 34)).foregroundStyle(Color.buddyGreen)
       Text("Ask about your paperwork.").font(.system(.title, design: .rounded, weight: .bold))
       Text(
-        "I can read your PDFs, add things up, find documents, and build statistics and filters for a group."
+        "I can read your PDFs, add things up, find documents, and create custom charts, statistics, and filters for a group."
       ).foregroundStyle(.secondary)
-      Text("Try “How much electricity have I paid in the last 6 months?”").font(.callout).padding()
-        .background(Color.buddyGreen.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+      Button {
+        Haptics.tap()
+        store.composerDraft = contextGroup == nil
+          ? "Help me create a custom statistics view for one of my groups."
+          : "Create a custom statistics view for this group with useful totals and charts."
+      } label: {
+        Text("Try “Create a statistics view with totals and charts for this group”")
+          .font(.callout).frame(maxWidth: .infinity, alignment: .leading).padding()
+          .background(Color.buddyGreen.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+      }.buttonStyle(.plain)
+        .accessibilityHint("Adds a suggested request to your message")
     }.padding(.vertical, 16)
   }
   private var composer: some View {

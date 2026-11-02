@@ -138,6 +138,7 @@ const agentSystem = `You are Lumik. Help organize documents, answer questions ab
 
 Statistics views and filters are saved per group with propose_change (create_view, update_view, delete_view). View SQL runs over this group's rows only. Tables: ${sqlTables}
 A view has kind, title, queries (name to SQL), and spec, a UI. Each query's rows are available to its spec at /queries/<name>, for example { "$state": "/queries/totals/0/sum" } or a chart's data { "$state": "/queries/by_month" }.
+For optional simple JavaScript post-processing, set spec.postProcess to a function body that reads queries and returns a JSON object. It runs in an isolated sandbox without I/O on every preview and refresh. Bind the returned fields with /processed/<key>. Example: return { total: queries.totals[0].sum }; Keep scripts short and handle empty rows and missing values. SQL and script errors must be fixed before proposing.
 - kind "statistic": base it on fields the group's documents actually contain. Keep each view focused.
 - kind "filter": spec holds the input components, each bound with $bindState to a top-level state key, with spec.state giving every key its starting value (usually null). The "documents" query must select the id column and read each key as a named parameter, so a state key vendor is :vendor. An empty input binds NULL, so write (:vendor IS NULL OR json_extract(data, '$.vendor') LIKE '%' || :vendor || '%'). A Select can read its options from another query. Do not use Button; the app adds Apply.
 

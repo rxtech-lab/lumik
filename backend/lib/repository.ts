@@ -3,6 +3,7 @@ import type { Client, Row } from '@libsql/client';
 import { db } from './db';
 import { ApiError, groupInput, mutationInput, safeName, validateData, viewInput, type Additional, type DeletedGroup, type Document, type Group, type GroupView } from './contracts';
 import { runSQL, type SandboxData, type SQLParam, type SQLResult } from './sql-sandbox';
+import { runJS } from './js-sandbox';
 import { validateUISpec } from './ui-catalog';
 function group(row: Row): Group { return { id: String(row.id), name: String(row.name), instructions: String(row.instructions), namingTemplate: String(row.naming_template), extractAdditional: Boolean(row.extract_additional), schema: JSON.parse(String(row.schema_json)), createdAt: String(row.created_at), documentCount: Number(row.document_count ?? 0) }; }
 function document(row: Row): Document { return { id: String(row.id), groupId: String(row.group_id), name: String(row.name), originalName: String(row.original_name), storageKey: String(row.storage_key), size: Number(row.size), status: String(row.status), data: row.data_json ? JSON.parse(String(row.data_json)) : null, additional: row.additional_json ? JSON.parse(String(row.additional_json)) : null, error: row.error ? String(row.error) : null, createdAt: String(row.created_at) }; }
@@ -93,6 +94,7 @@ export class Repository {
         const results = await this.runQueries(groupId, v.queries);
         if (v.kind === 'filter' && !results.documents.columns.includes('id'))
             throw new ApiError(422, 'A filter\'s "documents" query must select the id column');
+        await this.statisticsState(v.spec, results);
         return v;
     }
     async runQueries(groupId: string, queries: Record<string, string>, params: Record<string, SQLParam> = {}): Promise<Record<string, SQLResult>> {
@@ -102,7 +104,20 @@ export class Repository {
     /** The spec's starting state plus each query's rows at /queries/<name>. */
     async viewState(groupId: string, input: { spec: Record<string, unknown>; queries: Record<string, string> }) {
         const results = await this.runQueries(groupId, input.queries);
-        return { ...(input.spec.state as object | undefined), queries: Object.fromEntries(Object.entries(results).map(([name, result]) => [name, result.rows])) };
+        return this.statisticsState(input.spec, results);
+    }
+    private async statisticsState(spec: Record<string, unknown>, results: Record<string, SQLResult>) {
+        const queries = Object.fromEntries(Object.entries(results).map(([name, result]) => [name, result.rows]));
+        const state = { ...(spec.state as object | undefined), queries };
+        if (spec.postProcess === undefined) return state;
+        if (typeof spec.postProcess !== 'string' || spec.postProcess.length > 8000)
+            throw new ApiError(422, 'postProcess must be JavaScript of at most 8000 characters');
+        const { result } = await runJS(spec.postProcess, { queries });
+        if (!result || typeof result !== 'object' || Array.isArray(result))
+            throw new ApiError(422, 'postProcess must return an object');
+        if (JSON.stringify(result).length > 200000)
+            throw new ApiError(422, 'postProcess output is too large');
+        return { ...state, processed: result };
     }
     async createView(groupId: string, input: unknown) { const v = await this.checkView(groupId, input); const id = randomUUID(); await this.client.execute({ sql: 'INSERT INTO group_views (id,group_id,owner,kind,title,spec_json,queries_json,created_at) VALUES(?,?,?,?,?,?,?,?)', args: [id, groupId, this.owner, v.kind, v.title, JSON.stringify(v.spec), JSON.stringify(v.queries), new Date().toISOString()] }); return this.view(groupId, id); }
     async updateView(groupId: string, id: string, input: unknown) { await this.view(groupId, id); const v = await this.checkView(groupId, input); await this.client.execute({ sql: 'UPDATE group_views SET kind=?,title=?,spec_json=?,queries_json=? WHERE id=? AND owner=?', args: [v.kind, v.title, JSON.stringify(v.spec), JSON.stringify(v.queries), id, this.owner] }); return this.view(groupId, id); }

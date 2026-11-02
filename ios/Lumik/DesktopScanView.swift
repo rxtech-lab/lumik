@@ -169,12 +169,15 @@ private struct MultipageScanSheet: View {
   @State private var settings = false
   @State private var statusVisible = false
   private var busy: Bool { scanner.running || scanner.scanning || scanner.processing }
+  /// The feed outlives the pipeline briefly so the last page's animation can finish.
+  private var showsLiveView: Bool { busy || scanner.liveFeed.isPresenting }
   private var configuration: String {
     "\(scanner.color == 2 ? "Color" : scanner.color == 1 ? "Grayscale" : "Black & white") · \(scanner.dpi) DPI · \(scanner.duplex ? "Two-sided" : "One-sided")"
   }
   private var state: (label: String, color: Color) {
     if scanner.processing && !scanner.scanning { return ("Correcting pages", .blue) }
     if busy { return ("Scanning", .blue) }
+    if scanner.connecting { return ("Connecting", .orange) }
     if scanner.ready { return ("Ready", .green) }
     return (scanner.devices.isEmpty ? "Looking for scanners" : "Not ready", .orange)
   }
@@ -182,7 +185,10 @@ private struct MultipageScanSheet: View {
   var body: some View {
     NavigationStack {
       Group {
-        if scanner.pageCount > 0 {
+        if showsLiveView {
+          ScanLiveView(feed: scanner.liveFeed, awaitingPage: scanner.scanning, pageCount: scanner.pageCount)
+            .transition(.opacity)
+        } else if scanner.pageCount > 0 {
           ScanPageEditor(document: scanner.current, pageCount: scanner.pageCount,
             editable: !busy, changed: { scanner.pagesChanged() })
         } else {
@@ -196,6 +202,7 @@ private struct MultipageScanSheet: View {
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .animation(.smooth, value: showsLiveView)
       .navigationTitle("Document \(scanner.documents.count + 1)")
       .navigationSubtitle(scanner.pageCount == 0 ? "Multipage scan" : "\(scanner.pageCount) pages")
       .toolbar {
@@ -203,6 +210,12 @@ private struct MultipageScanSheet: View {
           Button("Close") {
             if scanner.pageCount == 0 || scanner.finishDocument() { dismiss() }
           }.disabled(busy)
+        }
+        ToolbarItem(placement: .primaryAction) {
+          if !scanner.ready {
+            Button("Reconnect", systemImage: "arrow.clockwise") { scanner.reconnect() }
+              .disabled(busy || scanner.connecting || scanner.devices.isEmpty)
+          }
         }
         ToolbarItem(placement: .primaryAction) {
           Button("Scan Settings", systemImage: "slider.horizontal.3") { settings = true }
@@ -219,7 +232,9 @@ private struct MultipageScanSheet: View {
         }
       }
       .overlay(alignment: .top) {
-        ScanStatusOverlay(message: busy || statusVisible ? scanner.status : nil, working: busy)
+        ScanStatusOverlay(message: busy || statusVisible ? scanner.status : nil, working: busy,
+          completed: scanner.processing ? scanner.correctionCompleted : nil,
+          total: scanner.correctionTotal, stage: scanner.liveFeed.frame?.message ?? "")
       }
       .sheet(isPresented: $settings) { ScannerSettings(scanner: scanner).fullSheet() }
       .alert("Scanner needs attention", isPresented: Binding(get: { scanner.error != nil }, set: { if !$0 { scanner.error = nil } })) {
@@ -255,12 +270,13 @@ private struct MultipageScanSheet: View {
           get: { scanner.selected?.uuidString ?? "" },
           set: { id in if let device = scanner.devices.first(where: { $0.uuidString == id }) { scanner.connect(device) } }
         )) {
+          Text("Select Scanner").tag("")
           ForEach(scanner.devices, id: \.uuidString) { device in
             Text(device.name ?? "Scanner").tag(device.uuidString ?? "")
           }
         }
         .labelsHidden().fixedSize()
-        .disabled(busy)
+        .disabled(busy || scanner.connecting)
       }
     }
     .padding(.vertical, 2)
@@ -286,11 +302,28 @@ private struct MultipageScanSheet: View {
 private struct ScanStatusOverlay: View {
   let message: String?
   var working = false
+  var completed: Int? = nil
+  var total = 0
+  var stage = ""
   var body: some View {
     if let message {
-      HStack(spacing: 8) {
-        if working { ProgressView().controlSize(.small) }
-        Text(message)
+      VStack(spacing: 6) {
+        HStack(spacing: 8) {
+          if working { ProgressView().controlSize(.small) }
+          Text(message)
+        }
+        if let completed {
+          let fraction = min(1, max(0, Double(completed) / Double(max(total, 1))))
+          HStack(spacing: 10) {
+            ProgressView(value: fraction)
+            Text(fraction, format: .percent.precision(.fractionLength(0)))
+              .monospacedDigit()
+              .accessibilityLabel("Correction progress")
+          }
+          Text("\(completed) of \(total) received pages corrected · \(stage)")
+            .font(.caption).foregroundStyle(.secondary)
+            .monospacedDigit()
+        }
       }
       .font(.callout.weight(.medium))
       .padding(.horizontal, 14).padding(.vertical, 9)
@@ -384,7 +417,7 @@ private struct ScannerSettings: View {
         if scanner.feeder?.supportsDuplexScanning != true {
           Text("The scanner’s driver does not report duplex support.").foregroundStyle(.secondary)
         }
-        Text("Higher resolutions produce larger PDFs. Each uploaded PDF must be under 20 MB. Paper size follows the scanner’s current feeder setting.").font(.footnote).foregroundStyle(.secondary)
+        Text("Higher resolutions produce larger PDFs. Paper size follows the scanner’s current feeder setting.").font(.footnote).foregroundStyle(.secondary)
       }.formStyle(.grouped).frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Scan Settings")
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }

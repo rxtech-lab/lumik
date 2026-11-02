@@ -70,6 +70,7 @@ struct GroupEditor: View {
 }
 struct SchemaEditor: View {
   @Binding var schema: JSONValue
+  var reviewingDraft = false
   @State private var field: FieldDraft?
   @State private var agent = false
   @State private var raw = false
@@ -86,8 +87,10 @@ struct SchemaEditor: View {
   private var actions: some View {
     Menu {
       Button("Add field", systemImage: "plus", action: addField)
-      Button("Describe with Buddy", systemImage: "sparkles") { agent = true }
-      Button("Edit JSON Schema", systemImage: "curlybraces") { raw = true }
+      if !reviewingDraft {
+        Button("Describe with Buddy", systemImage: "sparkles") { agent = true }
+        Button("Edit JSON Schema", systemImage: "curlybraces") { raw = true }
+      }
     } label: {
       #if os(macOS)
         Label("Schema actions", systemImage: "plus")
@@ -289,47 +292,81 @@ struct SchemaAgentView: View {
   @Environment(\.dismiss) private var dismiss
   @State private var prompt = ""
   @State private var result: JSONValue?
-  var body: some View {
-    NavigationStack {
-      Form {
-        Section("Describe the information you need") {
-          TextField(
-            "For invoices, capture the vendor, invoice date, total, currency, and each line item…",
-            text: $prompt, axis: .vertical
-          ).lineLimit(5...10)
-          Button("Draft schema", systemImage: "sparkles") {
-            Task {
-              await store.perform("Designing your schema…", success: "Schema ready to review") {
-                result = try await store.fetch(
-                  JSONValue.self, "schema/draft", method: "POST",
-                  body: JSONEncoder().encode(["prompt": prompt]))
-              }
-            }
-          }.disabled(prompt.count < 5)
-        }
-        if result != nil {
-          Section("Review before applying") {
-            NavigationLink("Review fields") {
-              SchemaEditor(schema: Binding(get: { result ?? .emptySchema }, set: { result = $0 }))
-            }
-            Text(result?.pretty ?? "").font(.caption.monospaced()).textSelection(.enabled)
-          }
-        }
-      }.formStyle(.grouped).navigationTitle("Ask Buddy").toolbar {
-        ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Use schema") {
-            if let result {
-              apply(result)
-              Haptics.success()
-              dismiss()
-            }
-          }.disabled(result == nil)
-        }
+  @State private var reviewing = false
+  @State private var draftedPrompt = ""
+
+  private func next() {
+    Haptics.tap()
+    if result != nil && draftedPrompt == prompt {
+      reviewing = true
+      return
+    }
+    Task {
+      let description = prompt
+      if await store.perform("Drafting fields…", success: "Fields ready to review", {
+        result = try await store.fetch(
+          JSONValue.self, "schema/draft", method: "POST",
+          body: JSONEncoder().encode(["prompt": description]))
+      }) {
+        draftedPrompt = description
+        reviewing = true
       }
     }
   }
+
+  var body: some View {
+    NavigationStack {
+      Group {
+        if reviewing {
+          SchemaEditor(
+            schema: Binding(get: { result ?? .emptySchema }, set: { result = $0 }),
+            reviewingDraft: true)
+        } else {
+          Form {
+            Section {
+              TextEditor(text: $prompt)
+                .frame(minHeight: 150)
+                .accessibilityLabel("Information to extract")
+            } header: {
+              Text("Describe the information you need")
+            } footer: {
+              Text("For example: For invoices, capture the vendor, invoice date, total, currency, and each line item. Next, review the fields before applying them.")
+            }
+          }.formStyle(.grouped)
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .navigationTitle(reviewing ? "Review fields" : "Ask Buddy")
+      .safeAreaInset(edge: .bottom) {
+        HStack {
+          if reviewing {
+            Button("Back") {
+              Haptics.tap()
+              reviewing = false
+            }
+          }
+          Spacer()
+          Button("Cancel") { dismiss() }
+          if reviewing {
+            Button("Use fields") {
+              if let result {
+                apply(result)
+                Haptics.success()
+                dismiss()
+              }
+            }.buttonStyle(.borderedProminent)
+          } else {
+            Button("Draft fields", systemImage: "sparkles", action: next)
+              .buttonStyle(.borderedProminent)
+              .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).count < 5)
+          }
+        }.padding().background(.bar)
+      }
+      .disabled(store.busy != nil)
+    }
+  }
 }
+
 struct JSONEditor: View {
   let title: String
   let save: (JSONValue) -> Void
