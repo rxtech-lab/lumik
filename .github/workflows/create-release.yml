@@ -1,11 +1,8 @@
 name: Create Release
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Stable version tag (v1.2.3)'
-        required: true
-        type: string
 permissions:
   contents: write
   actions: write
@@ -14,18 +11,29 @@ concurrency:
   cancel-in-progress: false
 jobs:
   create:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Create tag and draft release, then dispatch distribution
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preview or create release from commits
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v8
+        with:
+          dry_run: ${{ github.event_name == 'push' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Dispatch macOS distribution for the new draft
+        if: github.event_name == 'workflow_dispatch' && steps.semantic.outputs.new_release_published == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.semantic.outputs.new_release_git_tag }}
           REPOSITORY: ${{ github.repository }}
-          TARGET: ${{ github.sha }}
         run: |
           [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
-          gh api --method POST "repos/$REPOSITORY/git/refs" -f ref="refs/tags/$VERSION" -f sha="$TARGET"
-          gh release create "$VERSION" --repo "$REPOSITORY" --verify-tag --draft --generate-notes --title "Lumik $VERSION"
           # GITHUB_TOKEN-created tags do not trigger push workflows.
           gh workflow run macos-release.yml --repo "$REPOSITORY" --ref "$VERSION"
