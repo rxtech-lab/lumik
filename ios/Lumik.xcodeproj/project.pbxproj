@@ -28,6 +28,7 @@
 		EEEAFD0EBF9375A22E219F7E /* NavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B3773193872566F9AB9D710 /* NavigationTests.swift */; };
 		F53E3EFE9A3562EACA7B44EF /* ViewsUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DDDBD1C28AB9503A8A58321 /* ViewsUI.swift */; };
 		F77F63756BFFBE6CA6172CF6 /* JSONRender.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A7DAA415C9A58E23A96160 /* JSONRender.swift */; };
+		FE2F981BE3765CBA6EDC475C /* icon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 46011585DEB2F7EA471ABB59 /* icon.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,6 +48,7 @@
 		2D86C17A61ACA0B8269DC345 /* MacRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRootView.swift; sourceTree = "<group>"; };
 		3F19040F65808B286AE12E67 /* LumikUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LumikUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		441D34B278F00A90ABFED107 /* LumikApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LumikApp.swift; sourceTree = "<group>"; };
+		46011585DEB2F7EA471ABB59 /* icon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = icon.icon; sourceTree = "<group>"; };
 		49A93E0047D8E62772055E83 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		4C0742E02E0BECF937E99F08 /* Lumik.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Lumik.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5052960111874A984C429C37 /* MacNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacNavigationTests.swift; sourceTree = "<group>"; };
@@ -91,6 +93,7 @@
 		A8DCCFBDEC0BC41554BA2023 = {
 			isa = PBXGroup;
 			children = (
+				46011585DEB2F7EA471ABB59 /* icon.icon */,
 				50BFA55B5C519F00F5EA4523 /* Configuration */,
 				FCA57421A858273E7A0CA68B /* Lumik */,
 				B8B0AF4D43C852B4E0DB3755 /* LumikUITests */,
@@ -147,6 +150,7 @@
 			buildConfigurationList = A747C06B4FF6E93A3087D8DD /* Build configuration list for PBXNativeTarget "Lumik" */;
 			buildPhases = (
 				B65440B635B3187775B617A6 /* Sources */,
+				B51A6C7739D133115F808DF7 /* Resources */,
 				98F07D60B47E65CC1A74C92B /* Frameworks */,
 			);
 			buildRules = (
@@ -224,6 +228,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B51A6C7739D133115F808DF7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FE2F981BE3765CBA6EDC475C /* icon.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		0BF8BB9CE013BBC66DA5A7E2 /* Sources */ = {
@@ -451,7 +466,7 @@
 		7094F5169335CD013A7057E2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = icon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Configuration/Lumik-macOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_APP_SANDBOX = YES;
@@ -483,7 +498,7 @@
 		884F8C14F252DAA3FE53CB8B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = icon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Configuration/Lumik-macOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_APP_SANDBOX = YES;
@@ -550,7 +565,7 @@
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.8.0;
+				minimumVersion = 2.10.1;
 			};
 		};
 		A1733E348C6BA61A85B78DD5 /* XCRemoteSwiftPackageReference "RxAuthSwift" */ = {
@@ -558,7 +573,7 @@
 			repositoryURL = "https://github.com/rxtech-lab/RxAuthSwift";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 1.2.1;
+				minimumVersion = 1.3.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
