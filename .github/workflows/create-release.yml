@@ -27,7 +27,7 @@ jobs:
           dry_run: ${{ github.event_name == 'push' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - name: Dispatch macOS distribution for the new draft
+      - name: Dispatch macOS distribution for the published release
         if: github.event_name == 'workflow_dispatch' && steps.semantic.outputs.new_release_published == 'true'
         env:
           GH_TOKEN: ${{ github.token }}

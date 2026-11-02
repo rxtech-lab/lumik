@@ -57,7 +57,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --verify-tag --draft --generate-notes --title "Lumik $VERSION"
+          gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --verify-tag --generate-notes --title "Lumik $VERSION"
           gh release view "$VERSION" --json body --jq .body > output/release-notes.md
       - name: Generate and verify signed feed
         env:
@@ -66,7 +66,7 @@ jobs:
           RELEASE_NOTE="$(cat output/release-notes.md)"
           export RELEASE_NOTE
           bash scripts/ci/generate-appcast.sh
-      - name: Publish GitHub release
+      - name: Upload DMG to GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
