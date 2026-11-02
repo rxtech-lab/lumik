@@ -70,11 +70,15 @@ struct RootView: View {
             Tab("Account", systemImage: "person.crop.circle", value: 2) { AccountView() }
             // Wider screens keep Buddy in the right-hand column instead.
             if sizeClass == .compact {
+              #if compiler(>=6.4)
               if #available(iOS 27.0, *) {
                 Tab("Buddy", systemImage: "sparkles", value: 1, role: .prominent) { ChatView() }
               } else {
                 Tab("Buddy", systemImage: "sparkles", value: 1, role: .search) { ChatView() }
               }
+              #else
+              Tab("Buddy", systemImage: "sparkles", value: 1, role: .search) { ChatView() }
+              #endif
             }
           }.onChange(of: tab) { Haptics.tap() }
             .onChange(of: sizeClass) { if sizeClass != .compact && tab == 1 { tab = 0 } }

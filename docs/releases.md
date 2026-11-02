@@ -2,7 +2,7 @@
 
 The Git remote is `https://github.com/rxtech-lab/lumik.git`.
 
-- **Xcode Build** builds macOS and iOS Simulator on every push and pull request. It never runs UI tests.
+- **Xcode Build** builds macOS and iOS Simulator on every push. It never runs UI tests.
 - **Create Release** is manually dispatched from Actions with a stable `vX.Y.Z` tag. It creates a draft release and explicitly dispatches macOS Release at the tag (GitHub's built-in token cannot trigger another push workflow).
 - **macOS Release** also runs for independently pushed `v*` tags. Only stable semantic versions are accepted. It archives a universal Mac app, signs Sparkle helpers, notarizes/staples the app and DMG, validates the Ed25519 feed signature, publishes the GitHub release, and deploys the update site.
 
