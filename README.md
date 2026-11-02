@@ -54,7 +54,7 @@ xcodegen generate --spec ios/project.yml
 open ios/Lumik.xcodeproj
 ```
 
-Run the **Lumik** scheme on iPhone/iPad/Duo, or choose **My Mac** as its destination for the native Mac app. One target builds both. Signing uses the development team in `ios/project.yml`; change `DEVELOPMENT_TEAM` there, not in Xcode, because regenerating the project overwrites Xcode edits. Document camera scanning is iOS-only, so on Mac add documents by importing a PDF. Minimum OS is 26, matching RxAuthSwift. Debug and Release use `https://lumik.dev`. Authentication uses `https://auth.rxlab.app` in both configurations. The app’s API origin must reach the backend from the device; for physical hardware, override `SCANNER_API_URL` with your Mac’s LAN address in `Local.xcconfig`. That optional file overrides both configurations.
+Run the **Lumik** scheme on iPhone/iPad/Duo, or choose **My Mac** as its destination for the native Mac app. One target builds both. Signing uses the development team in `ios/project.yml`; change `DEVELOPMENT_TEAM` there, not in Xcode, because regenerating the project overwrites Xcode edits. Document camera scanning is iOS-only, so on Mac add documents by importing a PDF. Minimum OS is 26, matching RxAuthSwift. Debug and Release use `https://www.lumik.dev`. Authentication uses `https://auth.rxlab.app` in both configurations. The app’s API origin must reach the backend from the device; for physical hardware, override `SCANNER_API_URL` with your Mac’s LAN address in `Local.xcconfig`. That optional file overrides both configurations.
 
 The Debug-only `--ui-preview` launch argument shows a fixture library without connecting to an account. Preview mutations and network requests are deliberately disabled. Release builds ignore it.
 
