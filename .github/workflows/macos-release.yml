@@ -3,20 +3,46 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      resolve_public_key_only:
+        description: 'Derive the existing signing key public key without building or releasing'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
   group: macos-release
   cancel-in-progress: false
 jobs:
+  public-key:
+    if: github.event_name == 'workflow_dispatch' && inputs.resolve_public_key_only
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: python3 -m pip install cryptography
+      - name: Derive public key
+        env:
+          SPARKLE_KEY: ${{ secrets.SPARKLE_KEY }}
+        run: python3 scripts/ci/resolve-sparkle-key.py
+      - name: Export public key
+        run: printf '%s\n' "$SPARKLE_PUBLIC_KEY" > sparkle-public-key.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sparkle-public-key
+          path: sparkle-public-key.txt
+          retention-days: 1
   release:
+    if: ${{ !inputs.resolve_public_key_only }}
     runs-on: macos-26
     permissions:
       contents: write
     env:
       VERSION: ${{ github.ref_name }}
       BUILD_NUMBER: ${{ github.run_number }}
-      SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+      SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY || secrets.SPARKLE_PUBLIC_KEY }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate release configuration
@@ -24,8 +50,7 @@ jobs:
           SPARKLE_KEY: ${{ secrets.SPARKLE_KEY }}
         run: |
           [[ "$GITHUB_REF" == refs/tags/* && "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
-          test -n "$SPARKLE_PUBLIC_KEY"
-          test -n "$SPARKLE_KEY"
+          test -n "$SPARKLE_KEY" || { echo '::error::SPARKLE_KEY signing secret is required'; exit 1; }
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
@@ -34,6 +59,11 @@ jobs:
         with:
           python-version: '3.x'
       - run: python3 -m pip install cryptography markdown
+      - run: python3 scripts/ci/test_resolve_sparkle_key.py
+      - name: Resolve and validate Sparkle public key
+        env:
+          SPARKLE_KEY: ${{ secrets.SPARKLE_KEY }}
+        run: python3 scripts/ci/resolve-sparkle-key.py
       - run: python3 scripts/ci/test_validate_appcast.py
       - uses: apple-actions/import-codesign-certs@v3
         with:

@@ -37,7 +37,7 @@ Set these repository or organization Actions secrets with access to `rxtech-lab/
 | `APPLE_TEAM_ID` | Apple Developer team ID (`P9KK452K8P` for this project) |
 | `SPARKLE_KEY` | Base64 Sparkle Ed25519 signing seed; keep stable across releases |
 
-Set Actions variable `SPARKLE_PUBLIC_KEY` to the matching public key. The release build embeds it in Info.plist, and feed validation rejects a mismatched signing key. Keep a secure backup of the private key. Never replace it casually after distributing an app.
+The release build derives `SPARKLE_PUBLIC_KEY` from the existing `SPARKLE_KEY` signing secret and embeds it in Info.plist. An optional Actions variable (or secret) named `SPARKLE_PUBLIC_KEY` is checked against that key; a mismatch fails the build. To export just the public key, manually dispatch macOS Release with `resolve_public_key_only` enabled, then download the `sparkle-public-key` artifact and save its contents as the repository variable. This mode does not build or publish a release. Feed validation also checks the archive signature against the embedded public key. Keep a secure backup of the private key. Never replace it casually after distributing an app.
 
 No provisioning profile is needed for the current Developer ID app's sandbox, network, USB, and user-selected file entitlements. Additional restricted capabilities may change that.
 

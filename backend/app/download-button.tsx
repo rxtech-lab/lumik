@@ -15,7 +15,7 @@ export function DownloadButton({ release, compact = false }: { release: AppRelea
                 <button className="close-button" aria-label="Close download dialog" onClick={() => dialog.current?.close()}>×</button>
                 <span className="eyebrow">YOUR NEXT CLEAR STEP</span>
                 <h2 id={titleId}>Make room for clarity.</h2>
-                <p>Lumik for Mac <span className="version">v{release.version}</span></p>
+                <p>Lumik for Mac {release.version && <span className="version">v{release.version}</span>}</p>
                 <p className="muted">Requires macOS 26 or later. For Apple silicon and Intel Macs.</p>
                 {release.download ? <a className="button" href={release.download}>Download for Mac <span aria-hidden="true">↓</span></a> : <div className="release-notice"><strong>Release in preparation</strong><p>The Mac installer isn’t available here yet. Visit releases to check availability.</p></div>}
                 <a className="text-link" href={release.notes}>View releases <span aria-hidden="true">↗</span></a>
