@@ -47,6 +47,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Discover and connect to scanners on your local network.</string>
 	<key>RxLabClientID</key>
 	<string>$(RXLAB_CLIENT_ID)</string>
 	<key>RxLabIssuer</key>

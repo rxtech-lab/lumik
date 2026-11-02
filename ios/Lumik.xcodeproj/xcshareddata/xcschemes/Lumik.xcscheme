@@ -15,10 +15,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "39E2BCC39ABA1DCA2C911874"
-               BuildableName = "ScannerBuddy.app"
-               BlueprintName = "ScannerBuddy"
-               ReferencedContainer = "container:ScannerBuddy.xcodeproj">
+               BlueprintIdentifier = "73D55D45C735822087BEA916"
+               BuildableName = "Lumik.app"
+               BlueprintName = "Lumik"
+               ReferencedContainer = "container:Lumik.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -32,10 +32,10 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "39E2BCC39ABA1DCA2C911874"
-            BuildableName = "ScannerBuddy.app"
-            BlueprintName = "ScannerBuddy"
-            ReferencedContainer = "container:ScannerBuddy.xcodeproj">
+            BlueprintIdentifier = "73D55D45C735822087BEA916"
+            BuildableName = "Lumik.app"
+            BlueprintName = "Lumik"
+            ReferencedContainer = "container:Lumik.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -44,10 +44,10 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "C3E4B7601292D03B130617D6"
-               BuildableName = "ScannerBuddyUITests.xctest"
-               BlueprintName = "ScannerBuddyUITests"
-               ReferencedContainer = "container:ScannerBuddy.xcodeproj">
+               BlueprintIdentifier = "A6664BD5C835FA990866D20E"
+               BuildableName = "LumikUITests.xctest"
+               BlueprintName = "LumikUITests"
+               ReferencedContainer = "container:Lumik.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -68,10 +68,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "39E2BCC39ABA1DCA2C911874"
-            BuildableName = "ScannerBuddy.app"
-            BlueprintName = "ScannerBuddy"
-            ReferencedContainer = "container:ScannerBuddy.xcodeproj">
+            BlueprintIdentifier = "73D55D45C735822087BEA916"
+            BuildableName = "Lumik.app"
+            BlueprintName = "Lumik"
+            ReferencedContainer = "container:Lumik.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -85,10 +85,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "39E2BCC39ABA1DCA2C911874"
-            BuildableName = "ScannerBuddy.app"
-            BlueprintName = "ScannerBuddy"
-            ReferencedContainer = "container:ScannerBuddy.xcodeproj">
+            BlueprintIdentifier = "73D55D45C735822087BEA916"
+            BuildableName = "Lumik.app"
+            BlueprintName = "Lumik"
+            ReferencedContainer = "container:Lumik.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

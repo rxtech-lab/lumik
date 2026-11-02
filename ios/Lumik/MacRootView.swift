@@ -3,14 +3,15 @@
 
   enum MacDestination: Hashable {
     case group(String)
-    case buddy
     case account
+    case recycleBin
   }
   struct MacRootView: View {
     @Environment(AppStore.self) private var store
     @State private var selection: MacDestination?
     @State private var creating = false
     @State private var query = ""
+    @State private var groupToDelete: ScanGroup?
     var body: some View {
       NavigationSplitView {
         List(selection: $selection) {
@@ -22,12 +23,18 @@
                 Text(group.name).lineLimit(1)
               } icon: {
                 Image(systemName: "folder.fill").foregroundStyle(Color.buddyGreen)
-              }.badge(group.documentCount).tag(MacDestination.group(group.id))
+              }.badge(group.documentCount)
+                .contextMenu {
+                  Button("Delete group", systemImage: "trash", role: .destructive) {
+                    groupToDelete = group
+                  }
+                }
+                .tag(MacDestination.group(group.id))
             }
           }
           Section("Workspace") {
-            Label("Buddy", systemImage: "sparkles").tag(MacDestination.buddy)
             Label("Account", systemImage: "person.crop.circle").tag(MacDestination.account)
+            Label("Recycle Bin", systemImage: "trash").tag(MacDestination.recycleBin)
           }
         }.navigationTitle("Library")
           .searchable(text: $query, placement: .sidebar, prompt: "Find a group")
@@ -44,8 +51,15 @@
           .navigationSplitViewColumnWidth(min: 320, ideal: 340, max: 460)
       } detail: {
         detail
-      }.frame(minWidth: 980, minHeight: 640)
+      }.agentPanel()
+        .frame(minWidth: 1180, minHeight: 640)
         .task { await store.refresh() }
+        .onChange(of: store.groups) {
+          if case .group(let id) = selection, !store.groups.contains(where: { $0.id == id }) {
+            selection = nil
+          }
+        }
+        .confirmGroupDeletion($groupToDelete)
         .sheet(isPresented: $creating) { GroupEditor().fullSheet().actionFeedback() }
         .sheet(
           isPresented: Binding(
@@ -54,18 +68,21 @@
     }
     @ViewBuilder private var detail: some View {
       switch selection {
-      case .buddy: ChatView()
       case .account: AccountView()
+      case .recycleBin: RecycleBinView()
       case .group(let id):
         if let group = store.groups.first(where: { $0.id == id }) {
           NavigationStack { GroupDetailView(group: group) }.id(group.id)
         } else {
-          placeholder
+          NavigationStack { placeholder }
         }
-      case nil: placeholder
+      case nil: NavigationStack { placeholder }
       }
     }
-    @ViewBuilder private var placeholder: some View {
+    private var placeholder: some View {
+      placeholderContent.toolbar { ToolbarItem(placement: .primaryAction) { AgentToolbarButton() } }
+    }
+    @ViewBuilder private var placeholderContent: some View {
       if store.groups.isEmpty && !store.loading {
         ContentUnavailableView(
           "Start with a group", systemImage: "folder.badge.plus",

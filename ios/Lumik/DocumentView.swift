@@ -9,7 +9,6 @@ struct DocumentDetailView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
   #endif
   @State private var preview = PDFLoadState.loading
-  @State private var showsInspector = true
   @State private var reading = false
   @State private var editing = false
   @State private var deleting = false
@@ -23,16 +22,14 @@ struct DocumentDetailView: View {
       sizeClass != .compact
     #endif
   }
-  private var fields: [String: JSONValue] { document.data?.object ?? [:] }
+  private var pageCount: Int? { if case .loaded(let pdf) = preview { pdf.pageCount } else { nil } }
   private var isProcessing: Bool { document.status == "processing" }
   var body: some View {
     Group {
       if isRegular {
-        pdfPane.inspector(isPresented: $showsInspector) {
-          details.inspectorColumnWidth(min: 300, ideal: 340, max: 440)
-        }
+        pdfPane
       } else {
-        details
+        DocumentDetailsForm(document: document, pageCount: pageCount) { pageHero }
       }
     }.navigationTitle(document.name)
       #if os(iOS)
@@ -44,15 +41,25 @@ struct DocumentDetailView: View {
           document = updated
         }
       }
+      // Buddy and the right-hand details follow whichever PDF is on screen.
+      .onChange(of: document, initial: true) { store.openDocument = document }
+      .onChange(of: pageCount, initial: true) { store.openDocumentPages = pageCount }
+      .onAppear {
+        store.openDocument = document
+        if isRegular { store.agentPanelVisible = true }
+      }
+      .onDisappear { if store.openDocument?.id == document.id { store.openDocument = nil } }
       .toolbar {
         if isRegular {
           ToolbarItem(placement: .primaryAction) {
-            Button("Details", systemImage: "sidebar.trailing") {
-              showsInspector.toggle()
+            Button("Document details", systemImage: "sidebar.right") {
               Haptics.tap()
-            }
+              store.agentPanelTab = .details
+              store.agentPanelVisible = true
+            }.accessibilityIdentifier("document-details-toggle")
           }
         }
+        ToolbarItem(placement: .primaryAction) { AgentToolbarButton() }
         ToolbarItem(placement: .primaryAction) { actionsMenu }
       }
       .sheet(isPresented: $reading) {
@@ -81,9 +88,7 @@ struct DocumentDetailView: View {
         DeleteView(
           title: document.name, message: "This permanently removes the PDF and its extracted data."
         ) {
-          _ = try await store.request("documents/\(document.id)", method: "DELETE")
-          await store.loadDocuments(document.groupId)
-          await store.refresh()
+          try await store.deleteDocument(document)
         }.fullSheet().actionFeedback()
       }
       .fileExporter(
@@ -99,7 +104,7 @@ struct DocumentDetailView: View {
         Button(
           document.status == "ready" ? "Extract again" : "Extract details",
           systemImage: "sparkles"
-        ) { extract() }.disabled(isProcessing)
+        ) { Task { await store.extract(document) } }.disabled(isProcessing)
         Button("Edit details", systemImage: "pencil") {
           editing = true
           Haptics.tap()
@@ -170,13 +175,33 @@ struct DocumentDetailView: View {
       previewFailure(message)
     }
   }
-  // MARK: Details
-  private var details: some View {
-    Form {
-      if !isRegular {
-        Section { pageHero }.listRowBackground(Color.clear)
+  private func loadPDF() async {
+    preview = .loading
+    do {
+      let data = try await store.request("documents/\(document.id)/pdf")
+      if let pdf = LoadedPDF(data: data) {
+        preview = .loaded(pdf)
+      } else {
+        preview = .failed("This file appears to be damaged.")
       }
-      if isProcessing {
+    } catch {
+      if !Task.isCancelled { preview = .failed(error.localizedDescription) }
+    }
+  }
+}
+/// The PDF's fields and metadata: under the page on iPhone, in the right-hand panel elsewhere.
+struct DocumentDetailsForm<Hero: View>: View {
+  let document: ScanDocument
+  let pageCount: Int?
+  @ViewBuilder var hero: Hero
+  @Environment(AppStore.self) private var store
+  private var fields: [String: JSONValue] { document.data?.object ?? [:] }
+  var body: some View {
+    Form {
+      if !(hero is EmptyView) {
+        Section { hero }.listRowBackground(Color.clear)
+      }
+      if document.status == "processing" {
         Section {
           HStack(spacing: 12) {
             ProgressView()
@@ -205,6 +230,11 @@ struct DocumentDetailView: View {
           }
         }
       }
+      if let additional = document.additional {
+        Section("Also in this PDF") {
+          AdditionalDetailsView(spec: additional.spec).id(additional.spec)
+        }
+      }
       Section("Document") {
         DetailRow(label: "Name", value: document.name)
         if document.originalName != document.name {
@@ -214,39 +244,30 @@ struct DocumentDetailView: View {
           Label(document.statusText, systemImage: document.statusIcon)
             .foregroundStyle(document.statusColor)
         }
-        if case .loaded(let pdf) = preview {
-          LabeledContent("Pages", value: pdf.pageCount.formatted())
+        if let pageCount {
+          LabeledContent("Pages", value: pageCount.formatted())
         }
         LabeledContent(
-          "Size", value: Int64(document.size).formatted(.byteCount(style: .file)))
+          "Size", value: document.sizeText)
         LabeledContent("Added", value: document.addedText)
       }
     }.formStyle(.grouped)
   }
-  private func extract() {
-    Task {
-      await store.perform(
-        "Reading and organizing your document…", success: "Details extracted"
-      ) {
-        document = try await store.fetch(
-          ScanDocument.self, "documents/\(document.id)/process", method: "POST")
-        await store.loadDocuments(document.groupId)
-      }
-    }
+  private func extract() { Task { await store.extract(document) } }
+}
+extension DocumentDetailsForm where Hero == EmptyView {
+  init(document: ScanDocument, pageCount: Int?) {
+    self.init(document: document, pageCount: pageCount) { EmptyView() }
   }
-  private func loadPDF() async {
-    preview = .loading
-    do {
-      let data = try await store.request("documents/\(document.id)/pdf")
-      if let pdf = LoadedPDF(data: data) {
-        preview = .loaded(pdf)
-      } else {
-        preview = .failed("This file appears to be damaged.")
-      }
-    } catch {
-      if !Task.isCancelled { preview = .failed(error.localizedDescription) }
-    }
+}
+private struct AdditionalDetailsView: View {
+  let spec: JSONValue
+  @State private var state: JSONRenderState
+  init(spec: JSONValue) {
+    self.spec = spec
+    _state = State(initialValue: JSONRenderState(spec.object["state"] ?? .object([:])))
   }
+  var body: some View { JSONRenderView(spec: spec, state: state) }
 }
 private enum PDFLoadState {
   case loading
@@ -306,14 +327,14 @@ extension JSONValue {
   }
 }
 extension ScanDocument {
-  fileprivate var statusText: String {
+  var statusText: String {
     switch status {
     case "uploaded": "Not extracted"
     case "processing": "Reading"
     default: status.capitalized
     }
   }
-  fileprivate var statusIcon: String {
+  var statusIcon: String {
     switch status {
     case "ready": "checkmark.circle.fill"
     case "processing": "clock"
@@ -321,18 +342,21 @@ extension ScanDocument {
     default: "circle.dashed"
     }
   }
-  fileprivate var statusColor: Color {
+  var statusColor: Color {
     switch status {
     case "ready": .buddyGreen
     case "failed": .red
     default: .secondary
     }
   }
-  fileprivate var addedText: String {
-    let style = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-    guard let date = try? style.parse(createdAt) else { return createdAt }
-    return date.formatted(date: .abbreviated, time: .shortened)
+  private var addedDate: Date? {
+    try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(createdAt)
   }
+  fileprivate var addedText: String {
+    addedDate?.formatted(date: .abbreviated, time: .shortened) ?? createdAt
+  }
+  var addedDayText: String { addedDate?.formatted(date: .abbreviated, time: .omitted) ?? createdAt }
+  var sizeText: String { Int64(size).formatted(.byteCount(style: .file)) }
 }
 extension Color {
   fileprivate static var pdfCanvas: Color {

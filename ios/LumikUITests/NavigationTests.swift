@@ -2,6 +2,50 @@
   import XCTest
 
   final class NavigationTests: XCTestCase {
+    /// iPad and an unfolded Duo show Buddy beside the content; iPhone keeps its tab and a sheet.
+    @MainActor func testBuddyFollowsTheOpenDocument() throws {
+      let app = XCUIApplication()
+      app.launchArguments = ["--ui-preview"]
+      app.launch()
+      let isPad = UIDevice.current.userInterfaceIdiom == .pad
+      if isPad && !app.staticTexts["Travel receipts"].waitForExistence(timeout: 2) {
+        app.buttons["ToggleSidebar"].firstMatch.tap()
+      }
+      XCTAssertTrue(app.staticTexts["Travel receipts"].waitForExistence(timeout: 10))
+      app.staticTexts["Travel receipts"].tap()
+      let document = app.staticTexts["2026-11-01-acme.pdf"]
+      XCTAssertTrue(document.waitForExistence(timeout: 5))
+      XCTAssertTrue(app.staticTexts["Total spent"].exists)
+      let group = XCTAttachment(screenshot: app.screenshot())
+      group.name = "Group"
+      group.lifetime = .keepAlways
+      add(group)
+      app.staticTexts["Total spent"].tap()
+      XCTAssertTrue(app.staticTexts["$42.00"].waitForExistence(timeout: 5))
+      let statistic = XCTAttachment(screenshot: app.screenshot())
+      statistic.name = "Statistic"
+      statistic.lifetime = .keepAlways
+      add(statistic)
+      app.navigationBars.buttons.element(boundBy: 0).tap()
+      XCTAssertTrue(document.waitForExistence(timeout: 5))
+      document.tap()
+      if !isPad {
+        XCTAssertTrue(app.staticTexts["Also in this PDF"].waitForExistence(timeout: 5))
+        app.buttons["agent-toggle"].firstMatch.tap()
+      }
+      let context = app.staticTexts["agent-context"].firstMatch
+      XCTAssertTrue(context.waitForExistence(timeout: 5))
+      XCTAssertEqual(context.label, "2026-11-01-acme.pdf")
+      XCTAssertTrue(app.textFields["Ask Buddy…"].exists)
+      let panel = XCTAttachment(screenshot: app.screenshot())
+      panel.name = isPad ? "Three columns" : "Buddy sheet"
+      panel.lifetime = .keepAlways
+      add(panel)
+      if isPad {
+        app.buttons["Details"].tap()
+        XCTAssertTrue(app.staticTexts["Extracted details"].waitForExistence(timeout: 5))
+      }
+    }
     @MainActor func testDocumentDetailOpensThePDF() throws {
       let app = XCUIApplication()
       app.launchArguments = ["--ui-preview"]

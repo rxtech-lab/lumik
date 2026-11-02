@@ -1,7 +1,7 @@
 import RxAuthSwiftUI
 import SwiftUI
 
-@main struct ScannerBuddyApp: App {
+@main struct LumikApp: App {
   @State private var store = AppStore()
   var body: some Scene {
     WindowGroup {
@@ -34,13 +34,16 @@ extension Color {
 struct RootView: View {
   @Environment(AppStore.self) private var store
   @State private var tab = 0
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+  #endif
   var body: some View {
     Group {
       if !store.configured && !store.isPreview {
         ContentUnavailableView(
-          "Connect Scanner Buddy", systemImage: "doc.viewfinder",
+          "Connect Lumik", systemImage: "doc.viewfinder",
           description: Text(
-            "Your workspace is not connected yet. Contact your administrator to finish setting up Scanner Buddy."
+            "Your workspace is not connected yet. Contact your administrator to finish setting up Lumik."
           ))
       } else if store.auth.authState == .authenticated || store.isPreview {
         #if os(macOS)
@@ -49,12 +52,16 @@ struct RootView: View {
           TabView(selection: $tab) {
             Tab("Library", systemImage: "square.stack.3d.up", value: 0) { LibraryView() }
             Tab("Account", systemImage: "person.crop.circle", value: 2) { AccountView() }
-            if #available(iOS 27.0, *) {
-              Tab("Buddy", systemImage: "sparkles", value: 1, role: .prominent) { ChatView() }
-            } else {
-              Tab("Buddy", systemImage: "sparkles", value: 1, role: .search) { ChatView() }
+            // Wider screens keep Buddy in the right-hand column instead.
+            if sizeClass == .compact {
+              if #available(iOS 27.0, *) {
+                Tab("Buddy", systemImage: "sparkles", value: 1, role: .prominent) { ChatView() }
+              } else {
+                Tab("Buddy", systemImage: "sparkles", value: 1, role: .search) { ChatView() }
+              }
             }
           }.onChange(of: tab) { Haptics.tap() }
+            .onChange(of: sizeClass) { if sizeClass != .compact && tab == 1 { tab = 0 } }
         #endif
       } else if store.auth.authState == .unknown {
         ProgressView("Restoring your session…")
@@ -62,7 +69,7 @@ struct RootView: View {
         RxSignInView(
           manager: store.auth,
           appearance: .init(
-            title: "Scanner Buddy", subtitle: "A little order for all your paperwork.",
+            title: "Lumik", subtitle: "A little order for all your paperwork.",
             signInButtonTitle: "Sign in with RxLab", accentColor: .buddyGreen), style: .native,
           onAuthSuccess: { Task { await store.refresh() } })
       }
@@ -122,7 +129,7 @@ struct AccountView: View {
         Section("Connected storage") {
           LabeledContent("Server", value: store.baseURL.host ?? "")
           Text(
-            "Groups and documents sync through your Scanner Buddy account. PDFs are stored privately."
+            "Groups and documents sync through your Lumik account. PDFs are stored privately."
           ).font(.footnote).foregroundStyle(.secondary)
         }
         Section {
@@ -132,7 +139,7 @@ struct AccountView: View {
           }
         }
       }.formStyle(.grouped).navigationTitle("Account").confirmationDialog(
-        "Sign out of Scanner Buddy?", isPresented: $confirm
+        "Sign out of Lumik?", isPresented: $confirm
       ) {
         Button("Sign out", role: .destructive) {
           Task { await store.perform("Signing out…") { await store.logout() } }

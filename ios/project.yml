@@ -1,4 +1,4 @@
-name: ScannerBuddy
+name: Lumik
 options:
   bundleIdPrefix: app.rxlab
   deploymentTarget:
@@ -17,17 +17,17 @@ settings:
     GENERATE_INFOPLIST_FILE: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: P9KK452K8P
-    INFOPLIST_KEY_CFBundleDisplayName: Scanner Buddy
+    INFOPLIST_KEY_CFBundleDisplayName: Lumik
     INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
 configFiles:
   Debug: Configuration/Debug.xcconfig
   Release: Configuration/Release.xcconfig
 targets:
-  ScannerBuddy:
+  Lumik:
     type: application
     platform: auto
     supportedDestinations: [iOS, macOS]
-    sources: [ScannerBuddy]
+    sources: [Lumik]
     dependencies:
       - package: RxAuthSwift
         product: RxAuthSwift
@@ -35,7 +35,7 @@ targets:
         product: RxAuthSwiftUI
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.rxlab.scannerbuddy
+        PRODUCT_BUNDLE_IDENTIFIER: app.rxlab.lumik
         TARGETED_DEVICE_FAMILY: '1,2'
         INFOPLIST_KEY_NSCameraUsageDescription: Scan documents and combine their pages into a PDF.
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -44,11 +44,13 @@ targets:
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
         ENABLE_APP_SANDBOX: YES
         ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
+        ENABLE_RESOURCE_ACCESS_USB: YES
         ENABLE_USER_SELECTED_FILES: readwrite
         LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]: $(inherited) @executable_path/../Frameworks
     info:
       path: Generated/Info.plist
       properties:
+        NSLocalNetworkUsageDescription: Discover and connect to scanners on your local network.
         ScannerAPIURL: $(SCANNER_API_URL)
         RxLabClientID: $(RXLAB_CLIENT_ID)
         RxLabIssuer: https://auth.rxlab.app
@@ -62,20 +64,20 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-  ScannerBuddyUITests:
+  LumikUITests:
     type: bundle.ui-testing
     platform: auto
     supportedDestinations: [iOS, macOS]
-    sources: [ScannerBuddyUITests]
+    sources: [LumikUITests]
     dependencies:
-      - target: ScannerBuddy
+      - target: Lumik
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.rxlab.scannerbuddy.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: app.rxlab.lumik.uitests
 schemes:
-  ScannerBuddy:
+  Lumik:
     build:
       targets:
-        ScannerBuddy: all
+        Lumik: all
     test:
-      targets: [ScannerBuddyUITests]
+      targets: [LumikUITests]

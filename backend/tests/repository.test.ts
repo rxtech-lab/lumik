@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { createClient, type Client } from '@libsql/client';
 import { migrate } from '../lib/db';
-import { Repository } from '../lib/repository';
+import { purgeExpiredGroups, Repository } from '../lib/repository';
 import { pdfName, validateSchema, validateData } from '../lib/contracts';
 let dir: string;
 let client: Client;
@@ -36,12 +36,65 @@ describe('tenant isolation and document lifecycle', () => {
         await alice.complete(doc.id, 'renamed.pdf', { vendor: 'A', total: 42 });
         expect((await alice.document(doc.id)).status).toBe('ready');
     });
-    it('queues every deleted PDF for cleanup', async () => {
+    it('hides a deleted group and keeps its PDFs until restored', async () => {
+        const group = await alice.createGroup(draft);
+        const doc = await alice.addDocument(group.id, 'doc-a', 'a.pdf', 100);
+        await alice.deleteGroup(group.id);
+        expect(await alice.groups()).toEqual([]);
+        await expect(alice.group(group.id)).rejects.toMatchObject({ status: 404 });
+        await expect(alice.document(doc.id)).rejects.toMatchObject({ status: 404 });
+        await expect(alice.addDocument(group.id, 'doc-b', 'b.pdf', 100)).rejects.toMatchObject({ status: 404 });
+        expect((await alice.sandboxData()).documents).toEqual([]);
+        expect((await client.execute('SELECT * FROM gc')).rows).toHaveLength(0);
+        const [deleted] = await alice.deletedGroups();
+        expect(deleted).toMatchObject({ id: group.id, documentCount: 1 });
+        expect(new Date(deleted.purgeAt).getTime() - new Date(deleted.deletedAt).getTime()).toBe(30 * 24 * 60 * 60 * 1000);
+        expect(await alice.restoreGroup(group.id)).toMatchObject({ id: group.id, documentCount: 1 });
+        expect(await alice.deletedGroups()).toEqual([]);
+        expect((await alice.document(doc.id)).id).toBe(doc.id);
+    });
+    it('keeps the Recycle Bin private to its owner', async () => {
+        const group = await alice.createGroup(draft);
+        await alice.deleteGroup(group.id);
+        expect(await bob.deletedGroups()).toEqual([]);
+        await expect(bob.restoreGroup(group.id)).rejects.toMatchObject({ status: 404 });
+        await expect(bob.purgeGroup(group.id)).rejects.toMatchObject({ status: 404 });
+        expect(await alice.deletedGroups()).toHaveLength(1);
+    });
+    it('refuses to restore or purge a group that is not in the Recycle Bin', async () => {
+        const group = await alice.createGroup(draft);
+        await expect(alice.restoreGroup(group.id)).rejects.toMatchObject({ status: 404 });
+        await expect(alice.purgeGroup(group.id)).rejects.toMatchObject({ status: 404 });
+        expect(await alice.groups()).toHaveLength(1);
+    });
+    it('purges only groups deleted at least 30 days ago', async () => {
+        const expired = await alice.createGroup(draft);
+        const recent = await bob.createGroup(draft);
+        const active = await alice.createGroup(draft);
+        await alice.addDocument(expired.id, 'doc-a', 'a.pdf', 100);
+        await bob.addDocument(recent.id, 'doc-b', 'b.pdf', 100);
+        await alice.addDocument(active.id, 'doc-c', 'c.pdf', 100);
+        await alice.deleteGroup(expired.id);
+        await bob.deleteGroup(recent.id);
+        const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        await client.execute({ sql: 'UPDATE groups SET deleted_at=? WHERE id=?', args: [daysAgo(31), expired.id] });
+        await client.execute({ sql: 'UPDATE groups SET deleted_at=? WHERE id=?', args: [daysAgo(29), recent.id] });
+        // Past the deadline it is gone from the bin even before the purge runs.
+        expect(await alice.deletedGroups()).toEqual([]);
+        await expect(alice.restoreGroup(expired.id)).rejects.toMatchObject({ status: 404 });
+        await purgeExpiredGroups(client);
+        expect((await client.execute('SELECT storage_key FROM gc')).rows.map(r => r.storage_key)).toEqual(['doc-a.pdf']);
+        expect((await client.execute('SELECT id FROM documents ORDER BY id')).rows.map(r => r.id)).toEqual(['doc-b', 'doc-c']);
+        expect(await bob.deletedGroups()).toHaveLength(1);
+        expect(await alice.groups()).toHaveLength(1);
+    });
+    it('queues every purged PDF for cleanup', async () => {
         const group = await alice.createGroup(draft);
         await alice.addDocument(group.id, 'doc-a', 'a.pdf', 100);
         await alice.addDocument(group.id, 'doc-b', 'b.pdf', 100);
         await alice.deleteGroup(group.id);
-        expect(await alice.groups()).toEqual([]);
+        await alice.purgeGroup(group.id);
+        expect(await alice.deletedGroups()).toEqual([]);
         expect((await client.execute('SELECT * FROM documents')).rows).toHaveLength(0);
         expect((await client.execute('SELECT * FROM gc')).rows).toHaveLength(2);
     });
@@ -64,7 +117,7 @@ describe('agent approvals', () => {
         const approved = await alice.propose({ action: 'delete_group', groupId: group.id });
         await alice.resolveProposal(approved.id, true);
         expect(await alice.groups()).toHaveLength(0);
-        expect((await client.execute('SELECT * FROM gc')).rows).toHaveLength(1);
+        expect(await alice.deletedGroups()).toHaveLength(1);
     });
 });
 describe('schemas and filenames', () => {

@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Scanner Buddy API",
+    "title": "Lumik API",
     "version": "0.1.0"
   },
   "servers": [
@@ -208,7 +208,7 @@
         }
       },
       "delete": {
-        "summary": "Delete group and queue private PDFs for deletion",
+        "summary": "Move group to the Recycle Bin; it is permanently deleted after 30 days",
         "parameters": [
           {
             "name": "groupId",
@@ -227,6 +227,145 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/deleted-groups": {
+      "get": {
+        "summary": "List groups in the Recycle Bin",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DeletedGroup"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/deleted-groups/{groupId}": {
+      "delete": {
+        "summary": "Permanently delete a group from the Recycle Bin and queue private PDFs for deletion",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/deleted-groups/{groupId}/restore": {
+      "post": {
+        "summary": "Restore a group from the Recycle Bin",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Group"
                 }
               }
             }
@@ -681,6 +820,318 @@
         }
       }
     },
+    "/groups/{groupId}/views": {
+      "get": {
+        "summary": "List the group's statistics views and filters",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GroupView"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/groups/{groupId}/views/preview": {
+      "post": {
+        "summary": "Check an unsaved view against the group's data and return its state",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViewInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/groups/{groupId}/views/{viewId}": {
+      "delete": {
+        "summary": "Delete a view",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "viewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/groups/{groupId}/views/{viewId}/state": {
+      "get": {
+        "summary": "Run a view's queries and return the state its spec reads",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "viewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/groups/{groupId}/views/{viewId}/run": {
+      "post": {
+        "summary": "Run a filter with its form values; an empty value binds NULL",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "viewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "values"
+                ],
+                "properties": {
+                  "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "documentIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
     "/schema/draft": {
       "post": {
         "summary": "Draft a JSON Schema from text",
@@ -755,6 +1206,18 @@
                   "messages"
                 ],
                 "properties": {
+                  "context": {
+                    "type": "object",
+                    "description": "What the user has open",
+                    "properties": {
+                      "groupId": {
+                        "type": "string"
+                      },
+                      "documentId": {
+                        "type": "string"
+                      }
+                    }
+                  },
                   "messages": {
                     "type": "array",
                     "minItems": 1,
@@ -799,6 +1262,43 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/Proposal"
+                      }
+                    },
+                    "selection": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "groupId": {
+                          "type": "string"
+                        },
+                        "documentIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "label": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "activity": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tool": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
                       }
                     }
                   }
@@ -949,6 +1449,112 @@
       }
     },
     "schemas": {
+      "ViewInput": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "statistic",
+              "filter"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "spec": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "queries": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8000
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "spec",
+          "queries"
+        ],
+        "additionalProperties": false
+      },
+      "GroupView": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "statistic",
+              "filter"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "spec": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "queries": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8000
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "spec",
+          "queries"
+        ],
+        "additionalProperties": false
+      },
+      "ViewState": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
       "GroupInput": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -969,6 +1575,10 @@
             "minLength": 1,
             "maxLength": 200
           },
+          "extractAdditional": {
+            "default": false,
+            "type": "boolean"
+          },
           "schema": {
             "type": "object",
             "propertyNames": {
@@ -981,6 +1591,7 @@
           "name",
           "instructions",
           "namingTemplate",
+          "extractAdditional",
           "schema"
         ],
         "additionalProperties": false
@@ -1005,6 +1616,10 @@
             "minLength": 1,
             "maxLength": 200
           },
+          "extractAdditional": {
+            "default": false,
+            "type": "boolean"
+          },
           "schema": {
             "type": "object",
             "propertyNames": {
@@ -1026,6 +1641,63 @@
           "name",
           "instructions",
           "namingTemplate",
+          "extractAdditional",
+          "schema"
+        ],
+        "additionalProperties": false
+      },
+      "DeletedGroup": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "instructions": {
+            "default": "",
+            "type": "string",
+            "maxLength": 4000
+          },
+          "namingTemplate": {
+            "default": "{date}-{title}",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "extractAdditional": {
+            "default": false,
+            "type": "boolean"
+          },
+          "schema": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "id": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "documentCount": {
+            "type": "integer"
+          },
+          "deletedAt": {
+            "type": "string"
+          },
+          "purgeAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "instructions",
+          "namingTemplate",
+          "extractAdditional",
           "schema"
         ],
         "additionalProperties": false
@@ -1059,6 +1731,23 @@
               "null"
             ]
           },
+          "additional": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Facts beyond the schema and a json-render spec showing them",
+            "properties": {
+              "facts": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "spec": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
           "error": {
             "type": [
               "string",
@@ -1090,6 +1779,153 @@
                 "properties": {
                   "action": {
                     "type": "string",
+                    "const": "create_view"
+                  },
+                  "groupId": {
+                    "type": "string"
+                  },
+                  "view": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "statistic",
+                          "filter"
+                        ]
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "spec": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {}
+                      },
+                      "queries": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 8000
+                        }
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "title",
+                      "spec",
+                      "queries"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "action",
+                  "groupId",
+                  "view"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "update_view"
+                  },
+                  "groupId": {
+                    "type": "string"
+                  },
+                  "viewId": {
+                    "type": "string"
+                  },
+                  "view": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "statistic",
+                          "filter"
+                        ]
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "spec": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {}
+                      },
+                      "queries": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 8000
+                        }
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "title",
+                      "spec",
+                      "queries"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "action",
+                  "groupId",
+                  "viewId",
+                  "view"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "delete_view"
+                  },
+                  "groupId": {
+                    "type": "string"
+                  },
+                  "viewId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action",
+                  "groupId",
+                  "viewId"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
                     "const": "create_group"
                   },
                   "group": {
@@ -1111,6 +1947,10 @@
                         "minLength": 1,
                         "maxLength": 200
                       },
+                      "extractAdditional": {
+                        "default": false,
+                        "type": "boolean"
+                      },
                       "schema": {
                         "type": "object",
                         "propertyNames": {
@@ -1123,6 +1963,7 @@
                       "name",
                       "instructions",
                       "namingTemplate",
+                      "extractAdditional",
                       "schema"
                     ],
                     "additionalProperties": false
@@ -1163,6 +2004,10 @@
                         "minLength": 1,
                         "maxLength": 200
                       },
+                      "extractAdditional": {
+                        "default": false,
+                        "type": "boolean"
+                      },
                       "schema": {
                         "type": "object",
                         "propertyNames": {
@@ -1175,6 +2020,7 @@
                       "name",
                       "instructions",
                       "namingTemplate",
+                      "extractAdditional",
                       "schema"
                     ],
                     "additionalProperties": false

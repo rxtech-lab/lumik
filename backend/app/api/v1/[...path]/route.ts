@@ -3,15 +3,18 @@ import { after } from 'next/server';
 import { zipSync, strToU8 } from 'fflate';
 import { z } from 'zod';
 import { principal } from '@/lib/auth';
-import { Repository } from '@/lib/repository';
+import { purgeExpiredGroups, Repository } from '@/lib/repository';
 import { ApiError, safeName } from '@/lib/contracts';
 import { getPDF, putPDF, removePDF } from '@/lib/storage';
-import { chat, draftSchema, processDocument, processUploadedDocument } from '@/lib/ai';
+import { chat, chatContext, draftSchema, processDocument, processUploadedDocument } from '@/lib/ai';
 import { errorResponse, jsonBody, boundedBody } from '@/lib/http';
 import { db } from '@/lib/db';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
-async function cleanup() { const r = await db().execute('SELECT storage_key FROM gc LIMIT 25'); for (const row of r.rows) {
+async function cleanup() { try {
+    await purgeExpiredGroups();
+}
+catch { /* retried on the next mutation */ } const r = await db().execute('SELECT storage_key FROM gc LIMIT 25'); for (const row of r.rows) {
     try {
         await removePDF(String(row.storage_key));
         await db().execute({ sql: 'DELETE FROM gc WHERE storage_key=?', args: [row.storage_key] });
@@ -43,6 +46,17 @@ async function route(req: Request, { params }: {
                 await cleanup();
                 return Response.json({ ok: true });
             }
+        }
+        if (p[0] === 'deleted-groups') {
+            if (p.length === 1 && method === 'GET')
+                return Response.json(await repo.deletedGroups());
+            if (p.length === 2 && method === 'DELETE') {
+                await repo.purgeGroup(p[1]);
+                await cleanup();
+                return Response.json({ ok: true });
+            }
+            if (p.length === 3 && p[2] === 'restore' && method === 'POST')
+                return Response.json(await repo.restoreGroup(p[1]));
         }
         if (p[0] === 'groups' && p[2] === 'documents' && p.length === 3) {
             if (method === 'GET')
@@ -85,6 +99,24 @@ async function route(req: Request, { params }: {
             files['manifest.json'] = strToU8(JSON.stringify({ group: g, documents: docs.map(({ storageKey, ...d }) => d) }, null, 2));
             return new Response(Buffer.from(zipSync(files)), { headers: { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(safeName(g.name))}.zip`, 'Cache-Control': 'private, no-store' } });
         }
+        if (p[0] === 'groups' && p[2] === 'views') {
+            if (p.length === 3 && method === 'GET')
+                return Response.json(await repo.views(p[1]));
+            if (p[3] === 'preview' && p.length === 4 && method === 'POST') {
+                const view = await repo.checkView(p[1], await jsonBody(req));
+                return Response.json({ state: await repo.viewState(p[1], view) });
+            }
+            if (p.length === 4 && method === 'DELETE') {
+                await repo.deleteView(p[1], p[3]);
+                return Response.json({ ok: true });
+            }
+            if (p[4] === 'state' && p.length === 5 && method === 'GET')
+                return Response.json({ state: await repo.viewState(p[1], await repo.view(p[1], p[3])) });
+            if (p[4] === 'run' && p.length === 5 && method === 'POST') {
+                const b = z.object({ values: z.record(z.string(), z.union([z.string().max(1000), z.number(), z.boolean(), z.null()])) }).parse(await jsonBody(req));
+                return Response.json(await repo.runFilter(p[1], p[3], b.values));
+            }
+        }
         if (p[0] === 'documents' && p.length === 2) {
             if (method === 'GET')
                 return Response.json(await repo.document(p[1]));
@@ -111,8 +143,8 @@ async function route(req: Request, { params }: {
             return Response.json(await draftSchema(b.prompt));
         }
         if (p.join('/') === 'chat' && method === 'POST') {
-            const b = z.object({ messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(8000) })).min(1).max(40) }).parse(await jsonBody(req));
-            return Response.json(await chat(repo, b.messages));
+            const b = z.object({ messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(8000) })).min(1).max(40), context: chatContext.optional() }).parse(await jsonBody(req));
+            return Response.json(await chat(repo, b.messages, b.context));
         }
         if (p.join('/') === 'proposals' && method === 'GET')
             return Response.json(await repo.proposals());

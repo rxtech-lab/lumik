@@ -35,13 +35,15 @@ export function validateData(schema: Schema, data: unknown) {
     if (!validate(data))
         throw new ApiError(422, ajv.errorsText(validate.errors));
 }
-export const groupInput = z.object({ name: z.string().trim().min(1).max(100), instructions: z.string().max(4000).default(''), namingTemplate: z.string().min(1).max(200).default('{date}-{title}'), schema: z.record(z.string(), z.unknown()).refine(s => { validateSchema(s); return true; }) });
+export const groupInput = z.object({ name: z.string().trim().min(1).max(100), instructions: z.string().max(4000).default(''), namingTemplate: z.string().min(1).max(200).default('{date}-{title}'), extractAdditional: z.boolean().default(false), schema: z.record(z.string(), z.unknown()).refine(s => { validateSchema(s); return true; }) });
 export type GroupInput = z.infer<typeof groupInput>;
 export type Group = GroupInput & {
     id: string;
     createdAt: string;
     documentCount: number;
 };
+export type DeletedGroup = Group & { deletedAt: string; purgeAt: string };
+export type Additional = { facts: Record<string, unknown>; spec: Record<string, unknown> };
 export type Document = {
     id: string;
     groupId: string;
@@ -49,6 +51,8 @@ export type Document = {
     originalName: string;
     status: string;
     data: unknown;
+    /** Facts beyond the schema and a generated view of them, when the group asks for them. */
+    additional: Additional | null;
     error: string | null;
     createdAt: string;
     size: number;
@@ -59,7 +63,18 @@ export function pdfName(template: string, data: Record<string, unknown>, title: 
     const values = { ...data, title, date: new Date().toISOString().slice(0, 10) };
     return safeName(template.replace(/\{([^}]+)\}/g, (_, key) => String(values[key as keyof typeof values] ?? 'unknown')).replace(/\.pdf$/i, '')) + '.pdf';
 }
+export const viewInput = z.object({
+    kind: z.enum(['statistic', 'filter']),
+    title: z.string().trim().min(1).max(100),
+    spec: z.record(z.string(), z.unknown()),
+    // Each SQL result is exposed to the spec at /queries/<name>. A filter's "documents" query selects its results.
+    queries: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().min(1).max(8000)).refine(q => Object.keys(q).length <= 12, 'Use at most 12 queries'),
+});
+export type GroupView = z.infer<typeof viewInput> & { id: string; groupId: string; createdAt: string };
 export const mutationInput = z.discriminatedUnion('action', [
+    z.object({ action: z.literal('create_view'), groupId: z.string(), view: viewInput }),
+    z.object({ action: z.literal('update_view'), groupId: z.string(), viewId: z.string(), view: viewInput }),
+    z.object({ action: z.literal('delete_view'), groupId: z.string(), viewId: z.string() }),
     z.object({ action: z.literal('create_group'), group: groupInput }),
     z.object({ action: z.literal('update_group'), groupId: z.string(), group: groupInput }),
     z.object({ action: z.literal('delete_group'), groupId: z.string() }),

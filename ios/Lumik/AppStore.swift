@@ -18,6 +18,7 @@ import SwiftUI
     #endif
   }
   var groups: [ScanGroup] = []
+  var deletedGroups: [DeletedGroup] = []
   var documents: [ScanDocument] = []
   var messages: [ChatMessage] = []
   var proposals: [Proposal] = []
@@ -27,13 +28,26 @@ import SwiftUI
   var loading = false
   var pendingImport: URL?
   var selectedGroupID: String?
+  var views: [GroupView] = []
+  var documentFilter: DocumentFilter?
+  var openDocument: ScanDocument?
+  var openDocumentPages: Int?
+  var sending = false
+  var composerDraft = ""
+  var agentPanelVisible = true
+  var agentSheetVisible = false
+  var agentPanelTab = AgentPanelTab.buddy
+  var visibleDocuments: [ScanDocument] {
+    guard let documentFilter else { return documents }
+    return documents.filter { documentFilter.documentIDs.contains($0.id) }
+  }
   private var refreshTask: Task<Void, Error>?
   private var documentPoll: Task<Void, Never>?
   init() {
     let info = Bundle.main.infoDictionary ?? [:]
     let clientID = info["RxLabClientID"] as? String ?? "unconfigured"
     configured = !clientID.isEmpty && clientID != "unconfigured" && !clientID.contains("$(")
-    baseURL = URL(string: info["ScannerAPIURL"] as? String ?? "https://scanner.rxlab.app")!
+    baseURL = URL(string: info["ScannerAPIURL"] as? String ?? "https://lumik.dev")!
     let tokens = KeychainTokenStorage(serviceName: "app.rxlab.scannerbuddy.auth")
     self.tokens = tokens
     auth = OAuthManager(
@@ -83,6 +97,36 @@ import SwiftUI
     return data
   }
   #if DEBUG
+    private static func previewViews(_ groupID: String) -> [GroupView] {
+      func element(_ type: String, _ props: [String: JSONValue]) -> JSONValue {
+        .object(["type": .string(type), "props": .object(props), "children": .array([])])
+      }
+      return [
+        GroupView(
+          id: "preview-statistic", groupId: groupID, kind: "statistic", title: "Total spent",
+          spec: .object([
+            "root": .string("total"),
+            "elements": .object([
+              "total": element(
+                "Metric",
+                [
+                  "label": .string("Total"), "format": .string("currency"), "currency": .string("USD"),
+                  "value": .object(["$state": .string("/queries/total/0/sum")]),
+                ])
+            ]),
+          ]), queries: .object([:])),
+        GroupView(
+          id: "preview-filter", groupId: groupID, kind: "filter", title: "By vendor",
+          spec: .object([
+            "root": .string("vendor"),
+            "elements": .object([
+              "vendor": element(
+                "TextInput",
+                ["label": .string("Vendor"), "value": .object(["$bindState": .string("/vendor")])])
+            ]),
+          ]), queries: .object([:])),
+      ]
+    }
     private static func previewPDF() -> Data {
       let data = NSMutableData()
       var page = CGRect(x: 0, y: 0, width: 612, height: 792)
@@ -110,7 +154,7 @@ import SwiftUI
         ScanGroup(
           id: "preview", name: "Travel receipts",
           instructions: "Capture the vendor, date, currency, and total for every expense.",
-          namingTemplate: "{date}-{vendor}",
+          namingTemplate: "{date}-{vendor}", extractAdditional: true,
           schema: .object([
             "type": .string("object"),
             "properties": .object([
@@ -127,13 +171,48 @@ import SwiftUI
       self.error = error.localizedDescription
     }
   }
+  func loadDeletedGroups() async {
+    if isPreview { return }
+    do { deletedGroups = try await fetch([DeletedGroup].self, "deleted-groups") } catch {
+      self.error = error.localizedDescription
+    }
+  }
+  func deleteGroup(_ group: ScanGroup) async throws {
+    _ = try await request("groups/\(group.id)", method: "DELETE")
+    if selectedGroupID == group.id { documentPoll?.cancel() }
+    groups.removeAll { $0.id == group.id }
+    await loadDeletedGroups()
+    await refresh()
+  }
+  func restoreGroup(_ group: DeletedGroup) async throws {
+    _ = try await request("deleted-groups/\(group.id)/restore", method: "POST")
+    deletedGroups.removeAll { $0.id == group.id }
+    await refresh()
+  }
+  func purgeGroup(_ group: DeletedGroup) async throws {
+    _ = try await request("deleted-groups/\(group.id)", method: "DELETE")
+    deletedGroups.removeAll { $0.id == group.id }
+  }
   func loadDocuments(_ id: String) async {
+    if selectedGroupID != id { documentFilter = nil }
     if isPreview {
+      selectedGroupID = id
       documents = [
         ScanDocument(
           id: "preview-document", groupId: id, name: "2026-11-01-acme.pdf",
           originalName: "Scan.pdf", status: "ready",
           data: .object(["vendor": .string("Acme"), "total": .number(42)]),
+          additional: AdditionalData(
+            facts: .object(["receipt_number": .string("R-1042")]),
+            spec: .object([
+              "root": .string("note"),
+              "elements": .object([
+                "note": .object([
+                  "type": .string("Text"), "props": .object(["text": .string("Receipt number R-1042")]),
+                  "children": .array([]),
+                ])
+              ]),
+            ])),
           error: nil, createdAt: "2026-11-01", size: 48_000)
       ]
       return
@@ -208,6 +287,12 @@ import SwiftUI
       return false
     }
   }
+  func extract(_ document: ScanDocument) async {
+    await perform("Reading and organizing your document…", success: "Details extracted") {
+      _ = try await fetch(ScanDocument.self, "documents/\(document.id)/process", method: "POST")
+      await loadDocuments(document.groupId)
+    }
+  }
   func saveGroup(_ draft: GroupDraft, id: String?) async throws {
     let _: ScanGroup = try await fetch(
       ScanGroup.self, id.map { "groups/\($0)" } ?? "groups", method: id == nil ? "POST" : "PATCH",
@@ -230,19 +315,90 @@ import SwiftUI
     await loadDocuments(groupID)
     await refresh()
   }
+  func deleteDocument(_ document: ScanDocument) async throws {
+    _ = try await request("documents/\(document.id)", method: "DELETE")
+    // A poll already in flight could bring the deleted row back.
+    documentPoll?.cancel()
+    documents.removeAll { $0.id == document.id }
+    pollProcessingDocuments(document.groupId)
+    await refresh()
+  }
+  func loadViews(_ groupID: String) async {
+    #if DEBUG
+      if isPreview {
+        views = Self.previewViews(groupID)
+        return
+      }
+    #endif
+    do {
+      let result = try await fetch([GroupView].self, "groups/\(groupID)/views")
+      if selectedGroupID == groupID { views = result }
+    } catch { self.error = error.localizedDescription }
+  }
+  func viewState(_ view: GroupView) async throws -> JSONValue {
+    if isPreview { return .object(["queries": .object(["total": .array([.object(["sum": .number(42)])])]), "vendor": .null]) }
+    return try await fetch(ViewStateReply.self, "groups/\(view.groupId)/views/\(view.id)/state").state
+  }
+  func previewState(groupID: String, view: JSONValue) async throws -> JSONValue {
+    try await fetch(
+      ViewStateReply.self, "groups/\(groupID)/views/preview", method: "POST",
+      body: JSONEncoder().encode(view)
+    ).state
+  }
+  func deleteView(_ view: GroupView) async throws {
+    _ = try await request("groups/\(view.groupId)/views/\(view.id)", method: "DELETE")
+    views.removeAll { $0.id == view.id }
+  }
+  func runFilter(_ view: GroupView, values: [String: JSONValue]) async throws {
+    struct Reply: Decodable { var documentIds: [String] }
+    let reply = try await fetch(
+      Reply.self, "groups/\(view.groupId)/views/\(view.id)/run", method: "POST",
+      body: JSONEncoder().encode(["values": JSONValue.object(values)]))
+    documentFilter = DocumentFilter(title: view.title, documentIDs: Set(reply.documentIds))
+  }
+  /// Opens Buddy with a started message, in whichever place this device shows it.
+  func askBuddy(_ draft: String = "") {
+    Haptics.tap()
+    composerDraft = draft
+    agentPanelVisible = true
+    agentSheetVisible = true
+  }
   func send(_ text: String) async {
-    let history = Array((messages + [ChatMessage(role: "user", content: text)]).suffix(30))
+    struct Request: Encodable {
+      struct Message: Encodable {
+        var role: String
+        var content: String
+      }
+      struct Context: Encodable {
+        var groupId: String?
+        var documentId: String?
+      }
+      var messages: [Message]
+      var context: Context
+    }
     messages.append(ChatMessage(role: "user", content: text))
-    await perform("Working on your request…", success: "Reply ready") {
-      let body = try JSONEncoder().encode([
-        "messages": history.map { ["role": $0.role, "content": $0.content] }
-      ])
+    sending = true
+    defer { sending = false }
+    do {
+      // The PDF stays readable while Buddy works, so this does not block the screen.
+      let body = try JSONEncoder().encode(
+        Request(
+          messages: messages.suffix(30).map { .init(role: $0.role, content: $0.content) },
+          context: .init(groupId: selectedGroupID, documentId: openDocument?.id)))
       let reply = try await fetch(ChatReply.self, "chat", method: "POST", body: body)
       messages.append(
         ChatMessage(
           role: "assistant",
-          content: reply.text.isEmpty ? "I’ve prepared a change for your review." : reply.text))
+          content: reply.text.isEmpty ? "I’ve prepared a change for your review." : reply.text,
+          activity: reply.activity))
       proposals = reply.proposals
+      if let selection = reply.selection, selection.groupId == selectedGroupID {
+        documentFilter = DocumentFilter(title: selection.label, documentIDs: Set(selection.documentIds))
+      }
+      Haptics.success()
+    } catch {
+      self.error = error.localizedDescription
+      Haptics.failure()
     }
   }
   func logout() async {
@@ -253,6 +409,10 @@ import SwiftUI
     messages = []
     proposals = []
     selectedGroupID = nil
+    views = []
+    documentFilter = nil
+    openDocument = nil
+    composerDraft = ""
     pendingImport = nil
   }
 }

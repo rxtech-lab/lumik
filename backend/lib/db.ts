@@ -12,6 +12,11 @@ export function db() {
     }
     return client;
 }
+async function addColumn(client: Client, table: string, column: string, definition: string) {
+    const columns = await client.execute(`PRAGMA table_info(${table})`);
+    if (!columns.rows.some(row => row.name === column))
+        await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
 export async function migrate(client = db()) {
     await client.executeMultiple(`
     PRAGMA foreign_keys = ON;
@@ -21,5 +26,10 @@ export async function migrate(client = db()) {
     CREATE INDEX IF NOT EXISTS documents_group ON documents(owner,group_id);
     CREATE TABLE IF NOT EXISTS proposals (id TEXT PRIMARY KEY, owner TEXT NOT NULL, mutation TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS gc (storage_key TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS group_views (id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE, owner TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, spec_json TEXT NOT NULL, queries_json TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS group_views_group ON group_views(owner,group_id);
   `);
+  await addColumn(client, 'groups', 'extract_additional', 'INTEGER NOT NULL DEFAULT 0');
+  await addColumn(client, 'documents', 'additional_json', 'TEXT');
+  await addColumn(client, 'groups', 'deleted_at', 'TEXT');
 }

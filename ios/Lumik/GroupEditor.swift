@@ -31,6 +31,14 @@ struct GroupEditor: View {
           )
         }
         Section {
+          Toggle("Extract other details", isOn: $draft.extractAdditional)
+            .accessibilityIdentifier("extract-additional")
+        } footer: {
+          Text(
+            "Buddy also collects anything else useful it finds in each PDF, beyond your fields, and designs a view for it. Applies to new PDFs, or to existing ones when you extract again."
+          )
+        }
+        Section {
           TextField("Filename template", text: $draft.namingTemplate)
         } header: {
           Text("PDF naming")
