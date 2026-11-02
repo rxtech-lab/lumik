@@ -1,0 +1,32 @@
+import { writeFileSync } from 'node:fs';
+import { z } from 'zod';
+import { groupInput, mutationInput } from '../lib/contracts';
+const json = (schema: unknown) => ({ 'application/json': { schema } });
+const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+const object = { type: 'object', additionalProperties: true };
+const paths: Record<string, Record<string, unknown>> = {};
+function route(path: string, method: string, summary: string, response: unknown = object, body?: unknown, status = 200, mime = 'application/json') {
+    const parameters = [...path.matchAll(/\{(\w+)\}/g)].map(m => ({ name: m[1], in: 'path', required: true, schema: { type: 'string' } }));
+    (paths[path] ??= {})[method] = { summary, parameters, ...(body ? { requestBody: { required: true, content: json(body) } } : {}), responses: { [status]: { description: 'Success', content: { [mime]: { schema: response } } }, 400: { description: 'Invalid input' }, 401: { description: 'Missing or invalid RxLab token' }, 404: { description: 'Not found for this account' }, 409: { description: 'Busy or already handled' }, 413: { description: 'Size limit exceeded' }, 422: { description: 'Data does not match schema' }, 503: { description: 'Service not configured' } } };
+}
+route('/groups', 'get', 'List groups', { type: 'array', items: ref('Group') });
+route('/groups', 'post', 'Create group', ref('Group'), ref('GroupInput'), 201);
+route('/groups/{groupId}', 'get', 'Read group', ref('Group'));
+route('/groups/{groupId}', 'patch', 'Update group; existing results are preserved', ref('Group'), ref('GroupInput'));
+route('/groups/{groupId}', 'delete', 'Delete group and queue private PDFs for deletion');
+route('/groups/{groupId}/documents', 'get', 'List documents', { type: 'array', items: ref('Document') });
+route('/groups/{groupId}/documents', 'post', 'Upload a PDF, maximum 20 MB; it is extracted and renamed automatically, so poll until status leaves processing', ref('Document'), undefined, 201);
+(paths['/groups/{groupId}/documents'].post as Record<string, unknown>).requestBody = { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } } } };
+route('/groups/{groupId}/export', 'get', 'Download all PDFs and JSON manifest, maximum total 100 MB', { type: 'string', format: 'binary' }, undefined, 200, 'application/zip');
+route('/documents/{documentId}', 'get', 'Read document', ref('Document'));
+route('/documents/{documentId}', 'patch', 'Update name and schema-validated data', ref('Document'), { type: 'object', required: ['name', 'data'], properties: { name: { type: 'string' }, data: object } });
+route('/documents/{documentId}', 'delete', 'Delete document');
+route('/documents/{documentId}/pdf', 'get', 'Read private PDF', { type: 'string', format: 'binary' }, undefined, 200, 'application/pdf');
+route('/documents/{documentId}/process', 'post', 'Extract data and rename PDF; retry interrupted jobs after three minutes', ref('Document'));
+route('/schema/draft', 'post', 'Draft a JSON Schema from text', object, { type: 'object', required: ['prompt'], properties: { prompt: { type: 'string', minLength: 5, maxLength: 4000 } } });
+route('/chat', 'post', 'Chat with Buddy; changes become reviewable proposals', { type: 'object', properties: { text: { type: 'string' }, proposals: { type: 'array', items: ref('Proposal') } } }, { type: 'object', required: ['messages'], properties: { messages: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'object', required: ['role', 'content'], properties: { role: { enum: ['user', 'assistant'] }, content: { type: 'string', maxLength: 8000 } } } } } });
+route('/proposals', 'get', 'List pending proposals, expiring after 24 hours', { type: 'array', items: ref('Proposal') });
+route('/proposals/{proposalId}', 'post', 'Approve or reject a proposal exactly once', object, { type: 'object', required: ['approve'], properties: { approve: { type: 'boolean' } } });
+const groupSchema = z.toJSONSchema(groupInput);
+const spec = { openapi: '3.1.0', info: { title: 'Scanner Buddy API', version: '0.1.0' }, servers: [{ url: '/api/v1' }], security: [{ RxLab: [] }], paths, components: { securitySchemes: { RxLab: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } }, schemas: { GroupInput: z.toJSONSchema(groupInput), Group: { ...groupSchema, properties: { ...groupSchema.properties, id: { type: 'string' }, createdAt: { type: 'string' }, documentCount: { type: 'integer' } } }, Document: { type: 'object', properties: { id: { type: 'string' }, groupId: { type: 'string' }, name: { type: 'string' }, originalName: { type: 'string' }, status: { enum: ['uploaded', 'processing', 'ready', 'failed'] }, data: { type: ['object', 'null'] }, error: { type: ['string', 'null'] }, size: { type: 'integer' }, createdAt: { type: 'string' } } }, Proposal: { type: 'object', properties: { id: { type: 'string' }, state: { type: 'string' }, mutation: z.toJSONSchema(mutationInput) } } } } };
+writeFileSync(new URL('../openapi.json', import.meta.url), JSON.stringify(spec, null, 2) + '\n');

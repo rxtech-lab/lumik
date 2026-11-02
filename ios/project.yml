@@ -1,0 +1,81 @@
+name: ScannerBuddy
+options:
+  bundleIdPrefix: app.rxlab
+  deploymentTarget:
+    iOS: '26.0'
+    macOS: '26.0'
+packages:
+  RxAuthSwift:
+    url: https://github.com/rxtech-lab/RxAuthSwift
+    from: 1.2.1
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+    GENERATE_INFOPLIST_FILE: YES
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: P9KK452K8P
+    INFOPLIST_KEY_CFBundleDisplayName: Scanner Buddy
+    INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+configFiles:
+  Debug: Configuration/Debug.xcconfig
+  Release: Configuration/Release.xcconfig
+targets:
+  ScannerBuddy:
+    type: application
+    platform: auto
+    supportedDestinations: [iOS, macOS]
+    sources: [ScannerBuddy]
+    dependencies:
+      - package: RxAuthSwift
+        product: RxAuthSwift
+      - package: RxAuthSwift
+        product: RxAuthSwiftUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.rxlab.scannerbuddy
+        TARGETED_DEVICE_FAMILY: '1,2'
+        INFOPLIST_KEY_NSCameraUsageDescription: Scan documents and combine their pages into a PDF.
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportsDocumentBrowser: YES
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
+        ENABLE_USER_SELECTED_FILES: readwrite
+        LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]: $(inherited) @executable_path/../Frameworks
+    info:
+      path: Generated/Info.plist
+      properties:
+        ScannerAPIURL: $(SCANNER_API_URL)
+        RxLabClientID: $(RXLAB_CLIENT_ID)
+        RxLabIssuer: https://auth.rxlab.app
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [scannerbuddy]
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: PDF document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.adobe.pdf]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+  ScannerBuddyUITests:
+    type: bundle.ui-testing
+    platform: auto
+    supportedDestinations: [iOS, macOS]
+    sources: [ScannerBuddyUITests]
+    dependencies:
+      - target: ScannerBuddy
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.rxlab.scannerbuddy.uitests
+schemes:
+  ScannerBuddy:
+    build:
+      targets:
+        ScannerBuddy: all
+    test:
+      targets: [ScannerBuddyUITests]

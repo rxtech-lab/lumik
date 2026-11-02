@@ -1,0 +1,13 @@
+.DS_Store
+.env*
+!.env.example
+node_modules/
+.next/
+.data/
+.build/
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+ios/Configuration/Local.xcconfig
+*.tsbuildinfo

@@ -1,0 +1,3 @@
+SCANNER_API_URL = https:/$()/scanner.rxlab.app
+RXLAB_CLIENT_ID = client_fe59446c23694e09bbe51111209f571a
+#include? "Local.xcconfig"
