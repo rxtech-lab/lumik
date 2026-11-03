@@ -1516,6 +1516,86 @@
             "description": "Service not configured"
           }
         }
+      },
+      "post": {
+        "summary": "Run a view with selected input values",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "viewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "values"
+                ],
+                "properties": {
+                  "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
       }
     },
     "/groups/{groupId}/views/{viewId}/run": {
@@ -2022,6 +2102,1249 @@
           }
         }
       }
+    },
+    "/groups/{groupId}/overview": {
+      "get": {
+        "summary": "Read a group page in one database query: its documents, views, and filled forms",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupOverview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/workspace": {
+      "get": {
+        "summary": "Read a PDF page in one database query: the document, versions, form templates, and filled forms, with presigned download URLs",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/form-template": {
+      "post": {
+        "summary": "Return the current version's form, creating it the first time: PDF form fields found by the app are mapped exactly, otherwise AI finds the blanks. Also returns a draft to fill",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "template": {
+                      "$ref": "#/components/schemas/FormTemplate"
+                    },
+                    "form": {
+                      "$ref": "#/components/schemas/FilledForm"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/form-templates/{templateId}": {
+      "patch": {
+        "summary": "Change a form's sections, fields, and where they land on the page",
+        "parameters": [
+          {
+            "name": "templateId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateEdit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/forms": {
+      "post": {
+        "summary": "Start another filled copy of a form",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "templateId"
+                ],
+                "properties": {
+                  "templateId": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 150
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilledForm"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/forms/{formId}": {
+      "get": {
+        "summary": "Read a filled form with its template and PDF links",
+        "parameters": [
+          {
+            "name": "formId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilledForm"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Autosave values. Pass the revision last read; 409 means another device saved first or the form is with signing",
+        "parameters": [
+          {
+            "name": "formId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormSave"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "revision": {
+                      "type": "integer"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a filled copy and its signed PDF; the original PDF and form stay",
+        "parameters": [
+          {
+            "name": "formId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/forms/{formId}/signed-pdf": {
+      "get": {
+        "summary": "Read a signed PDF through the API",
+        "parameters": [
+          {
+            "name": "formId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/forms/{formId}/sign": {
+      "post": {
+        "summary": "Without presigned storage only: upload one signed PDF as multipart file and method",
+        "parameters": [
+          {
+            "name": "formId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningRequests"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/signing-requests": {
+      "get": {
+        "summary": "List signing requests with everything needed to sign their PDFs, in one database query",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningRequests"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      },
+      "post": {
+        "summary": "Move filled forms into a new or existing signing request; they can no longer be edited",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SigningCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "requests": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SigningRequest"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/signing-requests/{requestId}": {
+      "delete": {
+        "summary": "Delete a request; unsigned forms return to drafts and signed PDFs are kept",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningRequests"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/signing-requests/{requestId}/remove": {
+      "post": {
+        "summary": "Return one unsigned form to drafts",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "formId"
+                ],
+                "properties": {
+                  "formId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningRequests"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/signing-requests/{requestId}/uploads": {
+      "post": {
+        "summary": "Create presigned PUT URLs for all signed PDFs at once; mode local means use /forms/{formId}/sign",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SigningUploads"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/signing-requests/{requestId}/complete": {
+      "post": {
+        "summary": "Validate uploaded signed PDFs and record every signature in one write",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SigningComplete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningRequests"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/versions": {
+      "post": {
+        "summary": "Without presigned storage only: upload a new version as multipart file and makeCurrent",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/versions/uploads": {
+      "post": {
+        "summary": "Create a ten-minute presigned PUT URL for a new version",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "size"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 5
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/versions/uploads/{uploadId}/complete": {
+      "post": {
+        "summary": "Validate an uploaded version and optionally make it current. A version that has never been current is read by AI when it becomes current",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "uploadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "makeCurrent": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/versions/{versionId}": {
+      "delete": {
+        "summary": "Delete a version that is not current and has no filled forms",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "versionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/versions/{versionId}/current": {
+      "post": {
+        "summary": "Make a version the one shown, exported, and read by Lumik",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "versionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/versions/{versionId}/pdf": {
+      "get": {
+        "summary": "Read a version's PDF through the API",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "versionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2422,6 +3745,1403 @@
             "type": "string"
           }
         }
+      },
+      "FilledForm": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "documentName": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "versionId": {
+            "type": "string"
+          },
+          "versionNumber": {
+            "type": "integer"
+          },
+          "templateId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "awaiting_signature",
+              "signed"
+            ]
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "signingRequestId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signingRequestTitle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signatureMethod": {
+            "enum": [
+              "drawn",
+              "trackpad",
+              "typed",
+              null
+            ]
+          },
+          "signedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signedSize": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sections": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "footer": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "fields": {
+                  "maxItems": 500,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "text",
+                          "multiline",
+                          "date",
+                          "number",
+                          "checkbox",
+                          "choice",
+                          "signature"
+                        ]
+                      },
+                      "required": {
+                        "default": false,
+                        "type": "boolean"
+                      },
+                      "help": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 500
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "placements": {
+                        "default": [],
+                        "description": "Where the value is written; a repeated field has several",
+                        "maxItems": 50,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "page": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 10000
+                            },
+                            "x": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "w": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "h": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "manual": {
+                              "description": "The user positioned this box by hand",
+                              "type": "boolean"
+                            },
+                            "part": {
+                              "description": "The piece of a date written here, when a date spans several boxes",
+                              "type": "string",
+                              "enum": [
+                                "day",
+                                "month",
+                                "year"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "page",
+                            "x",
+                            "y",
+                            "w",
+                            "h"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "options": {
+                        "default": [],
+                        "description": "Choices; an option with placements is marked there, like a radio button",
+                        "maxItems": 200,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "string",
+                              "maxLength": 300
+                            },
+                            "label": {
+                              "type": "string",
+                              "maxLength": 200
+                            },
+                            "placements": {
+                              "default": [],
+                              "maxItems": 10,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "page": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 10000
+                                  },
+                                  "x": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "y": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "w": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "h": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "manual": {
+                                    "description": "The user positioned this box by hand",
+                                    "type": "boolean"
+                                  },
+                                  "part": {
+                                    "description": "The piece of a date written here, when a date spans several boxes",
+                                    "type": "string",
+                                    "enum": [
+                                      "day",
+                                      "month",
+                                      "year"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "page",
+                                  "x",
+                                  "y",
+                                  "w",
+                                  "h"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "label",
+                            "placements"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "widgets": {
+                        "default": [],
+                        "description": "Names of the PDF form fields this one replaces",
+                        "maxItems": 50,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "defaultValue": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 20000
+                              },
+                              {
+                                "type": "boolean"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label",
+                      "type",
+                      "required",
+                      "placements",
+                      "options",
+                      "widgets"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "fields"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "templateTitle": {
+            "type": "string"
+          },
+          "pdfPath": {
+            "type": "string"
+          },
+          "pdfUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Presigned for an hour; null in local development, so read pdfPath"
+          },
+          "signedPdfPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signedPdfUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "FormTemplate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "versionId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "acroform",
+              "ai"
+            ]
+          },
+          "sections": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "footer": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "fields": {
+                  "maxItems": 500,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "text",
+                          "multiline",
+                          "date",
+                          "number",
+                          "checkbox",
+                          "choice",
+                          "signature"
+                        ]
+                      },
+                      "required": {
+                        "default": false,
+                        "type": "boolean"
+                      },
+                      "help": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 500
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "placements": {
+                        "default": [],
+                        "description": "Where the value is written; a repeated field has several",
+                        "maxItems": 50,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "page": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 10000
+                            },
+                            "x": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "w": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "h": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "manual": {
+                              "description": "The user positioned this box by hand",
+                              "type": "boolean"
+                            },
+                            "part": {
+                              "description": "The piece of a date written here, when a date spans several boxes",
+                              "type": "string",
+                              "enum": [
+                                "day",
+                                "month",
+                                "year"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "page",
+                            "x",
+                            "y",
+                            "w",
+                            "h"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "options": {
+                        "default": [],
+                        "description": "Choices; an option with placements is marked there, like a radio button",
+                        "maxItems": 200,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "string",
+                              "maxLength": 300
+                            },
+                            "label": {
+                              "type": "string",
+                              "maxLength": 200
+                            },
+                            "placements": {
+                              "default": [],
+                              "maxItems": 10,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "page": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 10000
+                                  },
+                                  "x": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "y": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "w": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "h": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "manual": {
+                                    "description": "The user positioned this box by hand",
+                                    "type": "boolean"
+                                  },
+                                  "part": {
+                                    "description": "The piece of a date written here, when a date spans several boxes",
+                                    "type": "string",
+                                    "enum": [
+                                      "day",
+                                      "month",
+                                      "year"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "page",
+                                  "x",
+                                  "y",
+                                  "w",
+                                  "h"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "label",
+                            "placements"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "widgets": {
+                        "default": [],
+                        "description": "Names of the PDF form fields this one replaces",
+                        "maxItems": 50,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "defaultValue": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 20000
+                              },
+                              {
+                                "type": "boolean"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label",
+                      "type",
+                      "required",
+                      "placements",
+                      "options",
+                      "widgets"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "fields"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "DocumentVersion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "isCurrent": {
+            "type": "boolean"
+          },
+          "pdfPath": {
+            "type": "string"
+          },
+          "pdfUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
+      "Workspace": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/Document"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentVersion"
+            }
+          },
+          "templates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FormTemplate"
+            }
+          },
+          "forms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FilledForm"
+            }
+          }
+        }
+      },
+      "GroupOverview": {
+        "type": "object",
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Document"
+            }
+          },
+          "views": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupView"
+            }
+          },
+          "forms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FilledForm"
+            }
+          }
+        }
+      },
+      "SigningRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "forms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FilledForm"
+            }
+          }
+        }
+      },
+      "SigningRequests": {
+        "type": "object",
+        "properties": {
+          "requests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SigningRequest"
+            }
+          }
+        }
+      },
+      "TemplateRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "textRegions": {
+            "default": [],
+            "maxItems": 10000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "x": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "w": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "h": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "manual": {
+                  "description": "The user positioned this box by hand",
+                  "type": "boolean"
+                },
+                "part": {
+                  "description": "The piece of a date written here, when a date spans several boxes",
+                  "type": "string",
+                  "enum": [
+                    "day",
+                    "month",
+                    "year"
+                  ]
+                }
+              },
+              "required": [
+                "page",
+                "x",
+                "y",
+                "w",
+                "h"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "regenerate": {
+            "default": false,
+            "type": "boolean"
+          },
+          "pageCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "widgets": {
+            "default": [],
+            "maxItems": 3000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "x": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "w": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "h": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "manual": {
+                  "description": "The user positioned this box by hand",
+                  "type": "boolean"
+                },
+                "part": {
+                  "description": "The piece of a date written here, when a date spans several boxes",
+                  "type": "string",
+                  "enum": [
+                    "day",
+                    "month",
+                    "year"
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "multiline",
+                    "checkbox",
+                    "radio",
+                    "choice",
+                    "signature"
+                  ]
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 20000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "onState": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 300
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "options": {
+                  "default": [],
+                  "maxItems": 200,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 300
+                  }
+                }
+              },
+              "required": [
+                "page",
+                "x",
+                "y",
+                "w",
+                "h",
+                "name",
+                "kind",
+                "options"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "textRegions",
+          "regenerate",
+          "pageCount",
+          "widgets"
+        ],
+        "additionalProperties": false
+      },
+      "TemplateEdit": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150
+          },
+          "sections": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "footer": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "fields": {
+                  "maxItems": 500,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "text",
+                          "multiline",
+                          "date",
+                          "number",
+                          "checkbox",
+                          "choice",
+                          "signature"
+                        ]
+                      },
+                      "required": {
+                        "default": false,
+                        "type": "boolean"
+                      },
+                      "help": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 500
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "placements": {
+                        "default": [],
+                        "description": "Where the value is written; a repeated field has several",
+                        "maxItems": 50,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "page": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 10000
+                            },
+                            "x": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "w": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "h": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "manual": {
+                              "description": "The user positioned this box by hand",
+                              "type": "boolean"
+                            },
+                            "part": {
+                              "description": "The piece of a date written here, when a date spans several boxes",
+                              "type": "string",
+                              "enum": [
+                                "day",
+                                "month",
+                                "year"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "page",
+                            "x",
+                            "y",
+                            "w",
+                            "h"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "options": {
+                        "default": [],
+                        "description": "Choices; an option with placements is marked there, like a radio button",
+                        "maxItems": 200,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "string",
+                              "maxLength": 300
+                            },
+                            "label": {
+                              "type": "string",
+                              "maxLength": 200
+                            },
+                            "placements": {
+                              "default": [],
+                              "maxItems": 10,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "page": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 10000
+                                  },
+                                  "x": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "y": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "w": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "h": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  "manual": {
+                                    "description": "The user positioned this box by hand",
+                                    "type": "boolean"
+                                  },
+                                  "part": {
+                                    "description": "The piece of a date written here, when a date spans several boxes",
+                                    "type": "string",
+                                    "enum": [
+                                      "day",
+                                      "month",
+                                      "year"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "page",
+                                  "x",
+                                  "y",
+                                  "w",
+                                  "h"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "label",
+                            "placements"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "widgets": {
+                        "default": [],
+                        "description": "Names of the PDF form fields this one replaces",
+                        "maxItems": 50,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "defaultValue": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 20000
+                              },
+                              {
+                                "type": "boolean"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label",
+                      "type",
+                      "required",
+                      "placements",
+                      "options",
+                      "widgets"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "fields"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "title",
+          "sections"
+        ],
+        "additionalProperties": false
+      },
+      "FormSave": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20000
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "revision",
+          "values"
+        ],
+        "additionalProperties": false
+      },
+      "SigningCreate": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "formIds": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 150
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "formIds"
+        ],
+        "additionalProperties": false
+      },
+      "SigningUploads": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "formId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 5,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "formId",
+                "size"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SigningComplete": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "formId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uploadId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "drawn",
+                    "trackpad",
+                    "typed"
+                  ]
+                }
+              },
+              "required": [
+                "formId",
+                "uploadId",
+                "method"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
       },
       "Proposal": {
         "type": "object",

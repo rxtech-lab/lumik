@@ -181,6 +181,7 @@ struct ChatHistory: Decodable, Sendable {
 }
 struct APIError: LocalizedError {
   let message: String
+  var status: Int? = nil
   var errorDescription: String? { message }
 }
 

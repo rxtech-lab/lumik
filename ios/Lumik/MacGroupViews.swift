@@ -7,6 +7,8 @@
     let instructions: String
     let statistics: [GroupView]
     let subgroups: [ScanGroup]
+    var group: ScanGroup?
+    var forms: [FilledForm] = []
     /// The Inbox has fixed fields, so it has nothing to edit.
     let showsFields: Bool
     let editFields: () -> Void
@@ -16,7 +18,7 @@
         if !instructions.isEmpty {
           Text(instructions).foregroundStyle(.secondary).lineLimit(2)
         }
-        if showsFields || !subgroups.isEmpty || !statistics.isEmpty {
+        if showsFields || !subgroups.isEmpty || !statistics.isEmpty || !forms.isEmpty {
           EqualHeightGrid(minimumWidth: 230, fillsRow: false) {
             ForEach(subgroups) { group in
               NavigationLink {
@@ -33,6 +35,15 @@
                   title: "Extraction fields", subtitle: fieldCountText, icon: "list.bullet.rectangle",
                   tint: .buddyGreen)
               }.buttonStyle(MacTileButtonStyle()).accessibilityHint("Edit group")
+            }
+            if let group, !forms.isEmpty {
+              NavigationLink {
+                GroupFormsView(group: group)
+              } label: {
+                MacTile(
+                  title: "Filled & signed forms", subtitle: FilledForm.summary(of: forms),
+                  icon: "list.clipboard.fill", tint: .indigo)
+              }.buttonStyle(MacTileButtonStyle())
             }
             ForEach(statistics) { view in
               NavigationLink {

@@ -36,4 +36,4 @@ export async function boundedBody(request: Request, limit: number) {
     }
     return result;
 }
-export async function jsonBody(request: Request) { return JSON.parse(new TextDecoder().decode(await boundedBody(request, 64000))); }
+export async function jsonBody(request: Request, limit = 64000) { return JSON.parse(new TextDecoder().decode(await boundedBody(request, limit))); }

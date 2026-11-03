@@ -321,3 +321,19 @@ describe('schemas and filenames', () => {
         expect(pdfName('{vendor}-{missing}-{title}', { vendor: '../A/B' }, 'Receipt')).toBe('-A-B-unknown-Receipt.pdf');
     });
 });
+
+describe('moving groups', () => {
+    it('nests and unnests a group while preserving its children', async () => {
+        const a = await alice.createGroup(draft);
+        const b = await alice.createGroup(draft);
+        const child = await alice.createGroup({ ...draft, parentId: a.id });
+        expect((await alice.moveGroup(a.id, b.id)).parentId).toBe(b.id);
+        expect((await alice.group(child.id)).parentId).toBe(a.id);
+        await expect(alice.moveGroup(b.id, child.id)).rejects.toMatchObject({ status: 422 });
+        await expect(alice.moveGroup(a.id, a.id)).rejects.toMatchObject({ status: 422 });
+        expect((await alice.moveGroup(a.id, null)).parentId).toBeNull();
+        await expect(bob.moveGroup(a.id, null)).rejects.toMatchObject({ status: 404 });
+        const foreign = await bob.createGroup(draft);
+        await expect(alice.moveGroup(a.id, foreign.id)).rejects.toMatchObject({ status: 404 });
+    });
+});

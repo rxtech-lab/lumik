@@ -102,3 +102,54 @@ export const mutationInput = z.discriminatedUnion('action', [
         moves: z.array(z.object({ documentId: z.string(), target: z.string().min(1).describe('An existing group ID, or the ref of a new group') })).max(100).default([]),
     }),
 ]);
+const unit = z.number().min(0).max(1);
+/** A box on a page as fractions of the page as displayed: rotated and cropped, with y running down. */
+export const placementInput = z.object({ page: z.number().int().min(0).max(10000), x: unit, y: unit, w: unit, h: unit, manual: z.boolean().optional().describe('The user positioned this box by hand'), part: z.enum(['day', 'month', 'year']).optional().describe('The piece of a date written here, when a date spans several boxes') });
+export type Placement = z.infer<typeof placementInput>;
+export const fieldTypes = ['text', 'multiline', 'date', 'number', 'checkbox', 'choice', 'signature'] as const;
+export const formFieldInput = z.object({
+    id: z.string().min(1).max(64),
+    label: z.string().trim().min(1).max(200),
+    type: z.enum(fieldTypes),
+    required: z.boolean().default(false),
+    help: z.string().max(500).nullish(),
+    placements: z.array(placementInput).max(50).default([]).describe('Where the value is written; a repeated field has several'),
+    options: z.array(z.object({ value: z.string().max(300), label: z.string().max(200), placements: z.array(placementInput).max(10).default([]) })).max(200).default([]).describe('Choices; an option with placements is marked there, like a radio button'),
+    widgets: z.array(z.string().max(500)).max(50).default([]).describe('Names of the PDF form fields this one replaces'),
+    defaultValue: z.union([z.string().max(20000), z.boolean()]).nullish(),
+});
+export type FormField = z.infer<typeof formFieldInput>;
+export const formSectionsInput = z.array(z.object({
+    id: z.string().min(1).max(64),
+    title: z.string().trim().min(1).max(120),
+    footer: z.string().max(500).nullish(),
+    fields: z.array(formFieldInput).max(500),
+})).max(100).refine(sections => {
+    const ids = sections.flatMap(s => s.fields.map(f => f.id));
+    return ids.length <= 2000 && new Set(ids).size === ids.length;
+}, 'Field IDs must be unique, with at most 2000 fields');
+export type FormSection = z.infer<typeof formSectionsInput>[number];
+/** What the app finds in a PDF's own form, one entry per widget on a page. */
+export const pdfWidgetInput = placementInput.extend({
+    name: z.string().max(500),
+    kind: z.enum(['text', 'multiline', 'checkbox', 'radio', 'choice', 'signature']),
+    label: z.string().max(500).nullish(),
+    value: z.string().max(20000).nullish(),
+    onState: z.string().max(300).nullish(),
+    options: z.array(z.string().max(300)).max(200).default([]),
+});
+export type PDFWidget = z.infer<typeof pdfWidgetInput>;
+export const templateRequest = z.object({ textRegions: z.array(placementInput).max(10000).default([]), regenerate: z.boolean().default(false), pageCount: z.number().int().min(1).max(10000), widgets: z.array(pdfWidgetInput).max(3000).default([]) });
+export const templateEdit = z.object({ title: z.string().trim().min(1).max(150), sections: formSectionsInput });
+/** Autosave keeps only values, keyed by field ID. */
+export const formSave = z.object({
+    revision: z.number().int().min(0),
+    title: z.string().trim().min(1).max(150).optional(),
+    values: z.record(z.string().max(64), z.union([z.string().max(20000), z.boolean(), z.null()])).refine(v => Object.keys(v).length <= 2000, 'Too many values'),
+});
+const formIds = z.array(z.string().min(1).max(64)).min(1).max(100);
+export const signingCreate = z.object({ formIds, requestId: z.string().min(1).nullish(), title: z.string().trim().min(1).max(150).nullish() });
+export const signingUploads = z.object({ items: z.array(z.object({ formId: z.string().min(1), size: z.number().int().min(5) })).min(1).max(100) });
+const signatureMethod = z.enum(['drawn', 'trackpad', 'typed']);
+export const signingComplete = z.object({ items: z.array(z.object({ formId: z.string().min(1), uploadId: z.string().min(1), method: signatureMethod })).min(1).max(100) });
+export const signatureMethodInput = signatureMethod;

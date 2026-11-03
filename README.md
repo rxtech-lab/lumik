@@ -109,6 +109,14 @@ The public `/` route introduces Lumik with responsive Material-inspired layouts,
 
 ### Account lifecycle
 
+### Forms, signing, and versions
+
+Run migrations before deploying these (they add `document_versions`, `form_templates`, `filled_forms`, and `signing_requests`, and record existing PDFs as version 1).
+
+The original PDF is never changed. A form template maps fields to boxes on a page; a filled form stores only its values. The app draws the filled PDF on the device with PDFKit, so previews need no server work and every language renders. Only a signed PDF is stored, uploaded through a presigned URL. PDF form fields are mapped exactly and work without AI; a flat or scanned PDF gets boxes from AI that the user can adjust.
+
+Pages read through one call and one SQL statement: `GET documents/{id}/workspace`, `GET groups/{id}/overview`, and `GET signing-requests`. PDFs download straight from storage with the presigned URLs in those responses, which keeps files over the 4.5 MB function response limit working.
+
 Run `npm run db:migrate` before deploying account endpoints. `GET /api/v1/account`
 returns PDF `usedBytes` (including Recycle Bin), nullable `limitBytes`, and nullable
 `deleteAt` in epoch milliseconds. `POST` schedules deletion seven days ahead

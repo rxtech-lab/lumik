@@ -212,8 +212,8 @@ struct GroupDetailView: View {
       VStack(spacing: 0) {
         MacGroupOverview(
           fieldCount: group.schema.object["properties"]?.object.count ?? 0,
-          instructions: group.instructions, statistics: statistics, subgroups: subgroups,
-          showsFields: !group.isInbox
+          instructions: group.instructions, statistics: statistics, subgroups: subgroups, group: group,
+          forms: store.groupForms, showsFields: !group.isInbox
         ) {
           editing = true
           Haptics.tap()
@@ -278,6 +278,26 @@ struct GroupDetailView: View {
                 } icon: {
                   Image(systemName: "folder.fill").foregroundStyle(Color.buddyGreen)
                 }
+              }
+            }
+          }
+        }
+      }
+      if !store.groupForms.isEmpty {
+        Section("Forms") {
+          NavigationLink {
+            GroupFormsView(group: group)
+          } label: {
+            LabeledContent {
+              Text(store.groupForms.count.formatted())
+            } label: {
+              Label {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text("Filled & signed forms")
+                  Text(FilledForm.summary(of: store.groupForms)).font(.caption).foregroundStyle(.secondary)
+                }
+              } icon: {
+                Image(systemName: "list.clipboard.fill").foregroundStyle(.indigo)
               }
             }
           }
@@ -382,7 +402,7 @@ struct GroupDetailView: View {
             }
             #if os(macOS)
               Button("Refresh", systemImage: "arrow.clockwise") {
-                Task { await store.loadDocuments(group.id) }
+                Task { await store.loadGroupPage(group.id) }
               }
             #endif
             if !group.isInbox {
@@ -395,13 +415,8 @@ struct GroupDetailView: View {
             Image(systemName: "ellipsis")
           }.menuIndicator(.hidden).accessibilityLabel("Document actions")
         }
-      }.task {
-        await store.loadDocuments(group.id)
-        await store.loadViews(group.id)
-      }.refreshable {
-        await store.loadDocuments(group.id)
-        await store.loadViews(group.id)
-      }
+      }.task { await store.loadGroupPage(group.id) }
+      .refreshable { await store.loadGroupPage(group.id) }
       .sheet(item: $filter) { FilterSheet(view: $0).fullSheet().actionFeedback() }
       .sheet(isPresented: $editing) { GroupEditor(group: group).fullSheet().actionFeedback() }
       .sheet(item: $moving) { MoveDocumentView(document: $0).fullSheet().actionFeedback() }

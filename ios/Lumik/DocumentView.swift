@@ -17,6 +17,13 @@ struct DocumentDetailView: View {
   @State private var moving: ScanDocument?
   @State private var exporting = false
   @State private var exportFile: ExportFile?
+  @State private var fillingForm: FilledForm?
+  @State private var signingAction: FormAction?
+  @State private var layoutTemplate: FormLayoutRequest?
+  @State private var loadedVersionID: String?
+  private var hasForm: Bool {
+    store.workspace?.document.id == document.id && store.workspace?.currentTemplate != nil
+  }
   /// Mac and iPad read the PDF beside an inspector; iPhone leads with a page you tap to open.
   private var isRegular: Bool {
     #if os(macOS)
@@ -54,6 +61,18 @@ struct DocumentDetailView: View {
         if isLoading { store.loadingDocumentID = document.id }
       }
       .onChange(of: pageCount, initial: true) { store.openDocumentPages = pageCount }
+      // Uploading or choosing another version changes the PDF on screen.
+      .onChange(of: store.workspace?.currentVersion?.id) {
+        guard store.workspace?.document.id == document.id, let version = store.workspace?.currentVersion,
+          version.id != loadedVersionID
+        else { return }
+        Task { await loadVersion(version) }
+      }
+      .onChange(of: store.requestedFormDocumentID) {
+        guard store.requestedFormDocumentID == document.id else { return }
+        store.requestedFormDocumentID = nil
+        openForm()
+      }
       .onAppear {
         store.openDocument = document
         if isRegular { store.agentPanelVisible = true }
@@ -71,6 +90,19 @@ struct DocumentDetailView: View {
         }
         ToolbarItem(placement: .primaryAction) { AgentToolbarButton() }
         ToolbarItem(placement: .primaryAction) { actionsMenu }
+      }
+      .formActions($signingAction)
+      .sheet(item: $fillingForm) { form in
+        FormFillView(form: form).wideSheet().actionFeedback()
+      }
+      .sheet(
+        item: $layoutTemplate,
+        // Fields were just placed on a PDF that had none, so carry on to filling them in.
+        onDismiss: {
+          if store.workspace?.currentTemplate?.fieldCount ?? 0 > 0 { fillingForm = store.workspace?.latestDraft }
+        }
+      ) { request in
+        FormLayoutEditor(request: request).wideSheet().actionFeedback()
       }
       .sheet(isPresented: $reading) {
         if case .loaded(let pdf) = preview {
@@ -116,8 +148,69 @@ struct DocumentDetailView: View {
         if case .failure(let error) = result { if !isSilentCancellation(error) { store.error = error.localizedDescription } }
       }
   }
+  /// Reads the PDF the first time. After that the saved form opens straight away.
+  private var formButton: some View {
+    Button(hasForm ? "Open form" : "Create form", systemImage: hasForm ? "list.clipboard.fill" : "list.clipboard") {
+      openForm()
+    }
+    .labelStyle(.titleAndIcon)
+    .disabled(!isPDFLoaded || store.busy != nil)
+    .accessibilityIdentifier("document-form")
+  }
+  private func openForm(regenerate: Bool = false) {
+      guard case .loaded(let pdf) = preview, store.busy == nil else { return }
+      Haptics.tap()
+      if let template = store.workspace?.currentTemplate, hasForm, !regenerate, template.fieldCount == 0 {
+        layoutTemplate = FormLayoutRequest(template: template, pdf: pdf.data)
+        return
+      }
+      if let draft = store.workspace?.latestDraft, hasForm, !regenerate {
+        fillingForm = draft
+        return
+      }
+      Task {
+        var opened: FilledForm?
+        let succeeded = await store.perform(
+          regenerate ? "Regenerating form…" : hasForm ? "Opening form…" : "Reading this PDF and building its form…",
+          success: hasForm ? "Form ready" : "Form created"
+        ) { opened = try await store.openOrCreateForm(document, pdf: pdf.data, regenerate: regenerate) }
+        guard succeeded, let opened else { return }
+        // Nothing fillable was found, so the person places the fields themselves.
+        if let template = store.workspace?.currentTemplate, template.fieldCount == 0 {
+          layoutTemplate = FormLayoutRequest(template: template, pdf: pdf.data)
+        } else {
+          fillingForm = opened
+        }
+      }
+  }
+  private var isPDFLoaded: Bool { if case .loaded = preview { true } else { false } }
+  private var signingDrafts: [FilledForm] {
+    guard let workspace = store.workspace, workspace.document.id == document.id else { return [] }
+    return workspace.forms.filter { $0.isDraft && $0.versionId == workspace.currentVersion?.id }
+  }
+  @ViewBuilder private var signingButton: some View {
+    if signingDrafts.count == 1, let draft = signingDrafts.first {
+      Button("Add to signing request", systemImage: "signature") {
+        signingAction = .addToSigning([draft])
+      }.disabled(store.busy != nil)
+    } else if signingDrafts.count > 1 {
+      Menu("Add to signing request", systemImage: "signature") {
+        ForEach(signingDrafts) { draft in
+          Button(draft.title) { signingAction = .addToSigning([draft]) }
+        }
+      }.disabled(store.busy != nil)
+    }
+  }
   private var actionsMenu: some View {
     Menu {
+      Section {
+        formButton
+        if hasForm {
+          Button("Regenerate form", systemImage: "arrow.clockwise") { openForm(regenerate: true) }
+            .disabled(!isPDFLoaded || isProcessing || store.busy != nil)
+        }
+        signingButton
+      }
       Section {
         Button(
           document.status == "ready" ? "Extract again" : "Extract details",
@@ -145,7 +238,7 @@ struct DocumentDetailView: View {
         Button("Save PDF", systemImage: "square.and.arrow.up") {
           Task {
             await store.perform("Preparing PDF…", success: "PDF ready") {
-              let data = try await store.request("documents/\(document.id)/pdf")
+              let data = try await store.currentPDF(of: document)
               exportFile = ExportFile(data: data, type: .pdf)
               exporting = true
             }
@@ -206,6 +299,7 @@ struct DocumentDetailView: View {
       previewFailure(message)
     }
   }
+  /// One API read brings the page's versions and forms too; the PDF itself comes straight from storage.
   private func loadPDF() async {
     preview = .loading
     store.loadingDocumentID = document.id
@@ -213,10 +307,28 @@ struct DocumentDetailView: View {
       if store.loadingDocumentID == document.id { store.loadingDocumentID = nil }
     }
     do {
-      let data = try await store.request("documents/\(document.id)/pdf")
+      let workspace = try await store.loadWorkspace(document)
+      guard !Task.isCancelled else { return }
+      document = workspace.document
+      guard let version = workspace.currentVersion else {
+        preview = .failed("This document has no PDF.")
+        return
+      }
+      await loadVersion(version)
+    } catch {
+      if !isSilentCancellation(error) { preview = .failed(error.localizedDescription) }
+    }
+  }
+  private func loadVersion(_ version: DocumentVersion) async {
+    loadedVersionID = version.id
+    preview = .loading
+    store.suggestedFormDocumentID = nil
+    do {
+      let data = try await store.downloadPDF(url: version.pdfUrl, path: version.pdfPath)
       guard !Task.isCancelled else { return }
       if let pdf = LoadedPDF(data: data) {
         preview = .loaded(pdf)
+        store.suggestedFormDocumentID = pdf.seemsLikeForm ? document.id : nil
       } else {
         preview = .failed("This file appears to be damaged.")
       }
@@ -231,6 +343,9 @@ struct DocumentDetailsForm<Hero: View>: View {
   let pageCount: Int?
   @ViewBuilder var hero: Hero
   @Environment(AppStore.self) private var store
+  @State private var formAction: FormAction?
+  @State private var layoutRequest: FormLayoutRequest?
+  @State private var versionAction: VersionAction?
   private var fields: [String: JSONValue] { document.data?.object ?? [:] }
   var body: some View {
     Form {
@@ -251,12 +366,29 @@ struct DocumentDetailsForm<Hero: View>: View {
             .foregroundStyle(.red)
           Button("Try again", systemImage: "arrow.clockwise") { extract() }
         }
-      } else if fields.isEmpty {
+      }
+      if document.status != "processing", fields.isEmpty || showsFormAction {
         Section {
-          Text("Fill your group’s fields and rename this PDF automatically.")
-            .foregroundStyle(.secondary)
-          Button("Extract details", systemImage: "sparkles") { extract() }
-            .buttonStyle(.borderedProminent)
+          VStack(alignment: .leading, spacing: 12) {
+            Text(showsFormAction
+              ? "Extract document details or fill in this PDF as a form."
+              : "Fill your group’s fields and rename this PDF automatically.")
+              .font(.subheadline).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+              Button { extract() } label: {
+                Label("Extract details", systemImage: "sparkles").frame(maxWidth: .infinity)
+              }.buttonStyle(.borderedProminent)
+              if showsFormAction {
+                Button {
+                  store.requestedFormDocumentID = document.id
+                } label: {
+                  Label(hasForm ? "Open form" : "Create form", systemImage: "list.clipboard")
+                    .frame(maxWidth: .infinity)
+                }.buttonStyle(.bordered)
+                  .accessibilityIdentifier("sidebar-document-form")
+              }
+            }.controlSize(.large).disabled(store.busy != nil || store.loadingDocumentID == document.id)
+          }.padding(.vertical, 4)
         }
       }
       if !fields.isEmpty {
@@ -270,6 +402,10 @@ struct DocumentDetailsForm<Hero: View>: View {
         Section("Also in this PDF") {
           AdditionalDetailsView(spec: additional.spec).id(additional.spec)
         }
+      }
+      if store.workspace?.document.id == document.id, let workspace = store.workspace {
+        DocumentFormsSection(workspace: workspace, action: $formAction, layout: $layoutRequest)
+        DocumentVersionsSection(workspace: workspace, action: $versionAction)
       }
       Section("Document") {
         DetailRow(label: "Name", value: document.name)
@@ -288,8 +424,17 @@ struct DocumentDetailsForm<Hero: View>: View {
         LabeledContent("Added", value: document.addedText)
       }
     }.formStyle(.grouped)
+      .formActions($formAction)
+      .versionActions($versionAction, document: document)
+      .sheet(item: $layoutRequest) { request in
+        FormLayoutEditor(request: request).wideSheet().actionFeedback()
+      }
   }
-  private func extract() { Task { await store.extract(document) } }
+  private var hasForm: Bool {
+    store.workspace?.document.id == document.id && store.workspace?.currentTemplate != nil
+  }
+  private var showsFormAction: Bool { hasForm || store.suggestedFormDocumentID == document.id }
+  private func extract() { Haptics.tap(); Task { await store.extract(document) } }
 }
 extension DocumentDetailsForm where Hero == EmptyView {
   init(document: ScanDocument, pageCount: Int?) {
@@ -314,10 +459,17 @@ private struct LoadedPDF {
   let data: Data
   let pageCount: Int
   let firstPage: Image
+  let seemsLikeForm: Bool
   init?(data: Data) {
     guard let document = PDFDocument(data: data), let page = document.page(at: 0) else {
       return nil
     }
+    let pages = (0..<document.pageCount).compactMap { document.page(at: $0) }
+    let text = pages.prefix(10).compactMap(\.string).joined(separator: " ").lowercased()
+    let prompts = ["signature", "date of birth", "applicant", "please complete", "please fill", "checkbox"]
+    seemsLikeForm = pages.contains { $0.annotations.contains { $0.widgetFieldType != nil } }
+      || prompts.filter { text.contains($0) }.count >= 2
+      || (text.contains("____") && prompts.contains { text.contains($0) })
     self.data = data
     pageCount = document.pageCount
     let thumbnail = page.thumbnail(of: CGSize(width: 900, height: 1200), for: .mediaBox)
@@ -531,32 +683,102 @@ struct DocumentEditor: View {
     }
   }
 }
+/// Holds the bytes on screen, so a redraw only replaces the document when they actually change.
+private actor FormPreviewRenderer {
+  static let shared = FormPreviewRenderer()
+  func render(data: Data, sections: [FormSection], values: [String: JSONValue], changed: Set<String>) throws -> (pdf: Data, boxes: [FormPlacement]) {
+    try Task.checkCancellation()
+    let pdf = try FormRenderer.render(base: data, sections: sections, values: values)
+    return (pdf, try FormRenderer.drawnBoxes(base: data, sections: sections, fieldIDs: changed))
+  }
+}
+/// A filled PDF, with the sections and answers it was drawn from.
+struct FilledRevision: Sendable {
+  let pdf: Data
+  let sections: [FormSection]
+  let values: [String: JSONValue]
+}
+@MainActor
+final class PDFPreviewState {
+  var data: Data?
+  var sections: [FormSection] = []
+  var values: [String: JSONValue] = [:]
+  private var renderTask: Task<Void, Never>?
+  private var revision = 0
+
+  func start(data: Data, first: FilledRevision?) {
+    self.data = data
+    sections = first?.sections ?? []
+    values = first?.values ?? [:]
+  }
+
+  func update(_ view: PDFView, data: Data, sections: [FormSection], values: [String: JSONValue]) {
+    guard self.data != data || self.sections != sections || self.values != values else { return }
+    let changed = Set(sections.flatMap(\.fields).filter { self.values[$0.id] != values[$0.id] }.map(\.id))
+    self.data = data
+    self.sections = sections
+    self.values = values
+    revision += 1
+    let requestedRevision = revision
+    renderTask?.cancel()
+    renderTask = Task { [weak self, weak view] in
+      do {
+        try await Task.sleep(for: .milliseconds(250))
+        let rendered = sections.isEmpty ? (pdf: data, boxes: []) : try await FormPreviewRenderer.shared.render(
+          data: data, sections: sections, values: values, changed: changed)
+        try Task.checkCancellation()
+        guard let self, self.revision == requestedRevision, let view else { return }
+        view.transition(to: rendered.pdf, filling: rendered.boxes)
+      } catch is CancellationError {
+        // A newer edit superseded this preview.
+      } catch {
+        // Keep the last successful preview; saving reports rendering failures separately.
+      }
+    }
+  }
+}
 #if os(iOS)
   struct PDFPreview: UIViewRepresentable {
     let data: Data
+    var sections: [FormSection] = []
+    var values: [String: JSONValue] = [:]
+    /// What to show straight away, instead of the plain PDF followed by a redraw.
+    var first: FilledRevision?
+    func makeCoordinator() -> PDFPreviewState { PDFPreviewState() }
     func makeUIView(context: Context) -> PDFView {
       let view = PDFView()
-      view.document = PDFDocument(data: data)
+      view.document = PDFDocument(data: first?.pdf ?? data)
+      context.coordinator.start(data: data, first: first)
       view.displayMode = .singlePageContinuous
       view.autoScales = true
       view.backgroundColor = .secondarySystemBackground
       view.pageBreakMargins = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
       return view
     }
-    func updateUIView(_ uiView: PDFView, context: Context) {}
+    func updateUIView(_ uiView: PDFView, context: Context) {
+      context.coordinator.update(uiView, data: data, sections: sections, values: values)
+    }
   }
 #else
   struct PDFPreview: NSViewRepresentable {
     let data: Data
+    var sections: [FormSection] = []
+    var values: [String: JSONValue] = [:]
+    /// What to show straight away, instead of the plain PDF followed by a redraw.
+    var first: FilledRevision?
+    func makeCoordinator() -> PDFPreviewState { PDFPreviewState() }
     func makeNSView(context: Context) -> PDFView {
       let view = PDFView()
-      view.document = PDFDocument(data: data)
+      view.document = PDFDocument(data: first?.pdf ?? data)
+      context.coordinator.start(data: data, first: first)
       view.displayMode = .singlePageContinuous
       view.autoScales = true
       view.backgroundColor = .underPageBackgroundColor
       view.pageBreakMargins = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
       return view
     }
-    func updateNSView(_ nsView: PDFView, context: Context) {}
+    func updateNSView(_ nsView: PDFView, context: Context) {
+      context.coordinator.update(nsView, data: data, sections: sections, values: values)
+    }
   }
 #endif

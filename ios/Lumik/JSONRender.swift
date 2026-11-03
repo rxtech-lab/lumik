@@ -117,7 +117,7 @@ private struct JSONRenderNode: View {
       return .constant(resolve(raw) ?? .null)
     }
     let state = state
-    return Binding(get: { state.value(at: path) ?? .null }, set: { state.set(path, to: $0) })
+    return Binding(get: { state.value(at: path) ?? .null }, set: { Haptics.tap(); state.set(path, to: $0) })
   }
   // MARK: Components
   private var childViews: some View {
