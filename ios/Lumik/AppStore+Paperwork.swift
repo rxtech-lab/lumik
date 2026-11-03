@@ -27,6 +27,7 @@ extension AppStore {
   /// A filled PDF is never stored: it is drawn here from the untouched original and the saved values.
   func filledPDF(_ form: FilledForm) async throws -> Data {
     let form = try await completeForm(form)
+    if form.isSigned { return try await signedPDF(form) }
     let base = try await downloadPDF(url: form.pdfUrl, path: form.pdfPath ?? "")
     let sections = form.sections ?? []
     let values = form.values
@@ -224,7 +225,7 @@ extension AppStore {
   /// Draws each signed PDF here, uploads them directly to storage, and records them all with one call.
   func sign(
     _ forms: [FilledForm], in request: SigningRequest, art: SignatureArt,
-    placements: [String: [FormPlacement]], pdfs: [String: Data]
+    placements: [String: [FormPlacement]], pdfs: [String: Data], alreadyFilled: Bool = false
   ) async throws {
     struct Signed {
       var form: FilledForm
@@ -235,8 +236,9 @@ extension AppStore {
       busy = "Signing \(index + 1) of \(forms.count)…"
       guard let base = pdfs[form.id] else { throw APIError(message: "Couldn’t load \(form.documentName).") }
       let stamps = (placements[form.id] ?? []).map { SignatureStamp(art: art, placement: $0) }
-      let sections = form.sections ?? []
-      let values = form.values
+      guard !stamps.isEmpty else { throw FormRenderError.invalidSignaturePlacement }
+      let sections = alreadyFilled ? [] : (form.sections ?? [])
+      let values: [String: JSONValue] = alreadyFilled ? [:] : form.values
       let data = try await Task.detached(priority: .userInitiated) {
         try FormRenderer.render(base: base, sections: sections, values: values, stamps: stamps)
       }.value

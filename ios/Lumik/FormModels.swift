@@ -141,6 +141,8 @@ struct DocumentWorkspace: Codable, Sendable {
   }
 }
 struct GroupOverview: Decodable, Sendable {
+  var groups: [ScanGroup]
+  var requests: [SigningRequest]
   var documents: [ScanDocument]
   var views: [GroupView]
   var forms: [FilledForm]

@@ -90,6 +90,45 @@
         }
       }
     },
+    "/library": {
+      "get": {
+        "summary": "Read library groups and signing requests together; document, view, and form arrays are empty until a group is selected",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupOverview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
     "/groups": {
       "get": {
         "summary": "List groups",
@@ -2105,7 +2144,7 @@
     },
     "/groups/{groupId}/overview": {
       "get": {
-        "summary": "Read a group page in one database query: its documents, views, and filled forms",
+        "summary": "Read groups, signing requests, and the selected group documents, views, and filled forms in one request",
         "parameters": [
           {
             "name": "groupId",
@@ -4457,6 +4496,18 @@
       "GroupOverview": {
         "type": "object",
         "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Group"
+            }
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SigningRequest"
+            }
+          },
           "documents": {
             "type": "array",
             "items": {

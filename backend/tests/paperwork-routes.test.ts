@@ -197,3 +197,18 @@ it('bounds missing tool call recovery and reports resumable progress', async () 
     expect(state.generateText).toHaveBeenCalledTimes(3);
     expect((await ok(call('GET', `documents/${document.id}/workspace`))).templates).toEqual([]);
 });
+
+it('batches groups, selected documents and signing requests with owner isolation', async () => {
+    const { group, document } = await makeDocument();
+    const overview = await ok(call('GET', `groups/${group.id}/overview`));
+    expect(overview.groups.map((g: { id: string }) => g.id)).toContain(group.id);
+    expect(overview.documents.map((d: { id: string }) => d.id)).toEqual([document.id]);
+    expect(overview.requests).toEqual([]);
+    const library = await ok(call('GET', 'library'));
+    expect(library.groups).toEqual(overview.groups);
+    expect(library.documents).toEqual([]);
+    expect(library.requests).toEqual([]);
+    await state.client.execute({ sql: 'UPDATE groups SET owner=? WHERE id=?', args: ['bob', group.id] });
+    expect((await call('GET', `groups/${group.id}/overview`)).status).toBe(404);
+    expect((await ok(call('GET', 'library'))).groups.some((g: { id: string }) => g.id === group.id)).toBe(false);
+});
