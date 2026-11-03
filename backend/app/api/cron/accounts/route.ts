@@ -1,3 +1,5 @@
+import { cleanupOAuth } from '@/lib/mcp/oauth-tokens';
+import { getDatabase } from '@/lib/mcp/database';
 import { purgeAccounts } from '@/lib/account';
 import { db } from '@/lib/db';
 import { removePDF } from '@/lib/storage';
@@ -5,6 +7,7 @@ export const runtime = 'nodejs';
 export async function GET(request: Request) {
     if (!process.env.CRON_SECRET || request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) return new Response(null,{status:401});
     await purgeAccounts();
+    await cleanupOAuth(getDatabase(), new Date());
     const rows=await db().execute('SELECT storage_key FROM gc LIMIT 1000');
     let failed=0;
     for(const row of rows.rows) {

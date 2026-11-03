@@ -1,4 +1,5 @@
 import { createClient, type Client, type InArgs } from '@libsql/client';
+import { oauthMigration } from './mcp/migration';
 import { mkdirSync } from 'node:fs';
 let client: Client | undefined;
 export function db() {
@@ -18,6 +19,7 @@ async function addColumn(client: Client, table: string, column: string, definiti
         await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 export async function migrate(client = db()) {
+    await client.executeMultiple(oauthMigration);
     await client.executeMultiple(`
     PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS account_deletions (owner TEXT PRIMARY KEY, delete_at INTEGER NOT NULL, completed INTEGER NOT NULL DEFAULT 0);

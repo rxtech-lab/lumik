@@ -19,6 +19,9 @@ export async function purgeAccounts() {
         ...documentChildrenCleanup(`SELECT id FROM documents WHERE owner IN (${expired})`,args),
         {sql:`INSERT OR IGNORE INTO gc SELECT staging_key FROM pdf_uploads WHERE owner IN (${expired})`,args},
         ...['documents','group_views','groups','proposals','pdf_uploads','chat_messages','signing_requests'].map(table=>({sql:`DELETE FROM ${table} WHERE owner IN (${expired})`,args})),
+        {sql:`DELETE FROM mcp_oauth_tokens WHERE grant_id IN (SELECT id FROM mcp_oauth_grants WHERE owner_id IN (${expired}))`,args},
+        {sql:`DELETE FROM mcp_oauth_codes WHERE grant_id IN (SELECT id FROM mcp_oauth_grants WHERE owner_id IN (${expired}))`,args},
+        ...['mcp_oauth_requests','mcp_oauth_grants'].map(table=>({sql:`DELETE FROM ${table} WHERE owner_id IN (${expired})`,args})),
         {sql:'UPDATE account_deletions SET completed=1 WHERE delete_at<=?',args},
     ],'write');
 }

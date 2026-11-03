@@ -141,3 +141,5 @@ The Save PDFs and Upload PDFs sheets offer a remembered Model dropdown:
 - **Apple Intelligence — On Device** reads PDF text with PDFKit, recognizes scanned pages with Vision, and uses Foundation Models for fields, additional facts, and naming. Previous group filenames inform the name. The server validates fields against the group schema and saves the result without calling cloud AI. PDFs still upload through presigned storage URLs for sync.
 
 Apple Intelligence must be available on the device. Local processing currently rejects inputs beyond its conservative 10,000-byte prompt budget instead of truncating pages or falling back to cloud. Choose Cloud explicitly for larger documents. This choice applies to upload processing; existing server actions such as Extract Again, AI rename, and regrouping still use cloud AI.
+
+Remote MCP OAuth setup and deployment: [OAuth guide](docs/mcp-oauth.md).
