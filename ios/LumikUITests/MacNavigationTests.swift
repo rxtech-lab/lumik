@@ -39,7 +39,7 @@
       // A restored selection also shows the group's name as the detail title.
       let group = app.staticTexts["Travel receipts"].firstMatch
       XCTAssertTrue(group.waitForExistence(timeout: 10))
-      XCTAssertTrue(app.textFields["Ask Buddy…"].waitForExistence(timeout: 5))
+      XCTAssertTrue(app.textFields["Ask Lumik…"].waitForExistence(timeout: 5))
       capture(app, "Launch")
       group.click()
       let document = app.buttons["2026-11-01-acme.pdf, Ready, 48 KB"]
@@ -57,20 +57,20 @@
       capture(app, "Filter sheet")
       app.buttons["Cancel"].firstMatch.click()
       document.click()
-      // Buddy stays beside the PDF, following it, and details share the same panel.
+      // Lumik stays beside the PDF, following it, and details share the same panel.
       XCTAssertTrue(app.staticTexts["agent-context"].waitForExistence(timeout: 5))
       XCTAssertEqual(app.staticTexts["agent-context"].label, "2026-11-01-acme.pdf")
-      XCTAssertTrue(app.textFields["Ask Buddy…"].exists)
-      capture(app, "Document with Buddy")
+      XCTAssertTrue(app.textFields["Ask Lumik…"].exists)
+      capture(app, "Document with Lumik")
       app.buttons["agent-toggle"].click()
-      XCTAssertFalse(app.textFields["Ask Buddy…"].exists)
+      XCTAssertFalse(app.textFields["Ask Lumik…"].exists)
       app.buttons["document-details-toggle"].click()
       XCTAssertTrue(app.staticTexts["Extracted details"].waitForExistence(timeout: 5))
       XCTAssertTrue(app.staticTexts["Also in this PDF"].exists)
       XCTAssertTrue(app.staticTexts["Receipt number R-1042"].exists)
       capture(app, "Document details")
       app.buttons["agent-toggle"].click()
-      XCTAssertTrue(app.textFields["Ask Buddy…"].waitForExistence(timeout: 5))
+      XCTAssertTrue(app.textFields["Ask Lumik…"].waitForExistence(timeout: 5))
       XCTAssertEqual(app.staticTexts["agent-context"].label, "2026-11-01-acme.pdf")
       app.descendants(matching: .any)["Group actions"].firstMatch.click()
       app.menuItems["New group"].click()

@@ -25,6 +25,8 @@ import SwiftUI
   private var conversationID: String?
   private var chatHistoryLoaded = false
   var proposals: [Proposal] = []
+  var groupSuggestions: [PDFGroupSuggestion] = []
+  private var suggestionSession = UUID()
   var busy: String?
   var notice: String?
   var error: String?
@@ -44,9 +46,9 @@ import SwiftUI
   var openDocumentPages: Int?
   var sending = false
   var composerDraft = ""
-  /// Scans waiting in the composer. They live in the Inbox until Buddy's plan is approved.
+  /// Scans waiting in the composer. They live in the Inbox until Lumik's plan is approved.
   var chatAttachments: [ScanDocument] = []
-  /// Scans are read on upload, and Buddy files them from what that finds.
+  /// Scans are read on upload, and Lumik files them from what that finds.
   var readingAttachments = false
   private var attachmentPoll: Task<Void, Never>?
   var agentPanelVisible = true
@@ -116,6 +118,7 @@ import SwiftUI
     return documents.filter { documentFilter.documentIDs.contains($0.id) }
   }
   private var refreshTask: Task<Void, Error>?
+  private var documentLoadID = UUID()
   private var documentPoll: Task<Void, Never>?
   init() {
     let info = Bundle.main.infoDictionary ?? [:]
@@ -243,13 +246,13 @@ import SwiftUI
     loading = true
     defer { loading = false }
     do { groups = try await fetch([ScanGroup].self, "groups") } catch {
-      self.error = error.localizedDescription
+      if !isSilentCancellation(error) { self.error = error.localizedDescription }
     }
   }
   func loadDeletedGroups() async {
     if isPreview { return }
     do { deletedGroups = try await fetch([DeletedGroup].self, "deleted-groups") } catch {
-      self.error = error.localizedDescription
+      if !isSilentCancellation(error) { self.error = error.localizedDescription }
     }
   }
   func deleteGroup(_ group: ScanGroup) async throws {
@@ -296,17 +299,23 @@ import SwiftUI
       return
     }
     selectedGroupID = id
+    let loadID = UUID()
+    documentLoadID = loadID
     documentPoll?.cancel()
     documents = []
     loading = true
-    defer { loading = false }
+    defer { if documentLoadID == loadID { loading = false } }
     do {
       let result = try await fetch([ScanDocument].self, "groups/\(id)/documents")
-      if selectedGroupID == id {
+      if selectedGroupID == id && documentLoadID == loadID && !Task.isCancelled {
         documents = result
         pollProcessingDocuments(id)
       }
-    } catch { self.error = error.localizedDescription }
+    } catch {
+      if documentLoadID == loadID && selectedGroupID == id && !isSilentCancellation(error) {
+        self.error = error.localizedDescription
+      }
+    }
   }
   /// Uploads are processed on the server, so watch until their new names and fields arrive.
   private func pollProcessingDocuments(_ id: String) {
@@ -360,8 +369,7 @@ import SwiftUI
       Haptics.success()
       return true
     } catch {
-      self.error = error.localizedDescription
-      Haptics.failure()
+      if !isSilentCancellation(error) { self.error = error.localizedDescription; Haptics.failure() }
       return false
     }
   }
@@ -377,7 +385,22 @@ import SwiftUI
       body: JSONEncoder().encode(draft))
     await refresh()
   }
-  @discardableResult func upload(_ data: Data, name: String, groupID: String) async throws -> ScanDocument {
+  @discardableResult func upload(_ data: Data, name: String, groupID: String, progress: (@MainActor @Sendable (String) -> Void)? = nil) async throws -> ScanDocument {
+    let report: @MainActor @Sendable (String) -> Void = { [weak self] message in
+      progress?(message)
+      if self?.busy != nil { self?.busy = message }
+    }
+    report("Preparing \(name)…")
+    let model = PDFProcessingModel.saved
+    var localResult: Data? = nil
+    if model == .apple {
+      let availableGroups = try await fetch([ScanGroup].self, "groups")
+      guard let group = availableGroups.first(where: { $0.id == groupID }) else { throw APIError(message: "Group not found. Refresh and retry.") }
+      let previous = try await fetch([ScanDocument].self, "groups/\(groupID)/documents")
+      let names = previous.filter { $0.status == "ready" && $0.name != $0.originalName }.prefix(20).map(\.name)
+      let result = try await LocalPDFProcessor.extract(data, group: group, previousNames: names, progress: report)
+      localResult = try JSONEncoder().encode(result)
+    }
     struct UploadTicket: Decodable { let mode: String; let id: String?; let url: URL? }
     let ticketBody = try JSONSerialization.data(withJSONObject: ["name": name, "size": data.count])
     let ticket = try JSONDecoder().decode(UploadTicket.self, from: await request(
@@ -387,13 +410,19 @@ import SwiftUI
       upload.httpMethod = "PUT"
       upload.timeoutInterval = 300
       upload.setValue("application/pdf", forHTTPHeaderField: "Content-Type")
-      let (_, response) = try await URLSession.shared.upload(for: upload, from: data)
+      report(PDFUploadProgress.message(sent: 0, total: Int64(data.count)))
+      let delegate = PDFUploadProgress(total: Int64(data.count), report: report)
+      let (_, response) = try await URLSession.shared.upload(for: upload, from: data, delegate: delegate)
       guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
         throw APIError(message: "PDF upload failed. Please save again to retry.")
       }
+      report("Upload complete · Saving PDF and \(model == .apple ? "extracted fields" : "queuing AI analysis")…")
       let document = try await fetch(
-        ScanDocument.self, "groups/\(groupID)/uploads/\(id)/complete", method: "POST")
+        ScanDocument.self, "groups/\(groupID)/uploads/\(id)/complete", method: "POST", body: localResult.map { result in
+          Data("{\"processing\":\"apple\",\"result\":".utf8) + result + Data("}".utf8)
+        })
       await uploadFinished(in: groupID)
+      suggestGroupAfterProcessing(document)
       return document
     }
     guard ticket.mode == "local" else { throw APIError(message: "Invalid upload response.") }
@@ -402,6 +431,10 @@ import SwiftUI
       "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(name.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "\r", with: "").replacingOccurrences(of: "\n", with: ""))\"\r\nContent-Type: application/pdf\r\n\r\n"
         .utf8)
     body.append(data)
+    if let localResult {
+      body.append(Data("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"localResult\"\r\n\r\n".utf8))
+      body.append(localResult)
+    }
     body.append(Data("\r\n--\(boundary)--\r\n".utf8))
     let document = try JSONDecoder().decode(
       ScanDocument.self,
@@ -409,9 +442,34 @@ import SwiftUI
         "groups/\(groupID)/documents", method: "POST", body: body,
         contentType: "multipart/form-data; boundary=\(boundary)"))
     await uploadFinished(in: groupID)
+      suggestGroupAfterProcessing(document)
     return document
   }
-  /// A scan sent to the Inbox from Buddy must not replace the group that is open.
+  private func suggestGroupAfterProcessing(_ uploaded: ScanDocument) {
+    let session = suggestionSession
+    Task {
+      do {
+        var document = uploaded
+        for _ in 0..<60 {
+          guard session == suggestionSession else { return }
+          if document.status != "processing" { break }
+          try await Task.sleep(for: .seconds(3))
+          document = try await fetch(ScanDocument.self, "documents/\(uploaded.id)")
+        }
+        guard document.status == "ready" else { return }
+        struct Suggestion: Decodable { let groupId: String; let reason: String }
+        struct Reply: Decodable { let suggestion: Suggestion? }
+        let reply = try await fetch(Reply.self, "documents/\(document.id)/suggest-group", method: "POST")
+        guard session == suggestionSession, let suggestion = reply.suggestion else { return }
+        await refresh()
+        guard let group = groups.first(where: { $0.id == suggestion.groupId }) else { return }
+        groupSuggestions.append(PDFGroupSuggestion(document: document, group: group, reason: suggestion.reason))
+      } catch {
+        // Saving succeeded; an optional filing suggestion must not turn it into an upload failure.
+      }
+    }
+  }
+  /// A scan sent to the Inbox from Lumik must not replace the group that is open.
   private func uploadFinished(in groupID: String) async {
     if selectedGroupID == groupID { await loadDocuments(groupID) }
     await refresh()
@@ -495,8 +553,8 @@ import SwiftUI
     #endif
     do {
       let result = try await fetch([GroupView].self, "groups/\(groupID)/views")
-      if selectedGroupID == groupID { views = result }
-    } catch { self.error = error.localizedDescription }
+      if selectedGroupID == groupID && !Task.isCancelled { views = result }
+    } catch { if !isSilentCancellation(error) { self.error = error.localizedDescription } }
   }
   func viewState(_ view: GroupView) async throws -> JSONValue {
     if isPreview { return .object(["queries": .object(["total": .array([.object(["sum": .number(42)])])]), "vendor": .null]) }
@@ -519,7 +577,7 @@ import SwiftUI
       body: JSONEncoder().encode(["values": JSONValue.object(values)]))
     documentFilter = DocumentFilter(title: view.title, documentIDs: Set(reply.documentIds))
   }
-  /// Opens Buddy with a started message, in whichever place this device shows it.
+  /// Opens Lumik with a started message, in whichever place this device shows it.
   func askBuddy(_ draft: String = "") {
     Haptics.tap()
     composerDraft = draft
@@ -538,7 +596,7 @@ import SwiftUI
         ChatMessage(role: $0.role, content: $0.content, activity: $0.activity)
       }
     } catch {
-      self.error = error.localizedDescription
+      if !isSilentCancellation(error) { self.error = error.localizedDescription }
     }
   }
   func startNewConversation() {
@@ -565,7 +623,7 @@ import SwiftUI
       var context: Context
     }
     let attached = chatAttachments
-    // Written into the message so it stays visible, and known to Buddy, on later turns.
+    // Written into the message so it stays visible, and known to Lumik, on later turns.
     let names = attached.prefix(10).map(\.name).joined(separator: ", ")
     let more = attached.count > 10 ? " and \(attached.count - 10) more" : ""
     let content = attached.isEmpty ? text : "\(text)\n\nAttached: \(names)\(more)"
@@ -576,7 +634,7 @@ import SwiftUI
     sending = true
     defer { sending = false }
     do {
-      // The PDF stays readable while Buddy works, so this does not block the screen.
+      // The PDF stays readable while Lumik works, so this does not block the screen.
       let body = try JSONEncoder().encode(
         Request(
           conversationId: conversation,
@@ -597,13 +655,15 @@ import SwiftUI
       }
       Haptics.success()
     } catch {
-      self.error = error.localizedDescription
+      if !isSilentCancellation(error) { self.error = error.localizedDescription }
       // Kept in the composer so the same scans go with the next try.
       if chatAttachments.isEmpty { chatAttachments = attached }
       Haptics.failure()
     }
   }
   func logout() async {
+    suggestionSession = UUID()
+    groupSuggestions = []
     documentPoll?.cancel()
     attachmentPoll?.cancel()
     chatAttachments = []
@@ -641,5 +701,24 @@ import SwiftUI
     #if os(iOS)
       UINotificationFeedbackGenerator().notificationOccurred(.error)
     #endif
+  }
+}
+
+/// URLSession reports bytes actually sent to the presigned storage endpoint.
+private final class PDFUploadProgress: NSObject, URLSessionTaskDelegate, Sendable {
+  let total: Int64
+  let report: @MainActor @Sendable (String) -> Void
+  init(total: Int64, report: @escaping @MainActor @Sendable (String) -> Void) {
+    self.total = total
+    self.report = report
+  }
+  static func message(sent: Int64, total: Int64) -> String {
+    String(format: "Uploading PDF · %.2f MB / %.2f MB", Double(sent) / 1_000_000, Double(total) / 1_000_000)
+  }
+  func urlSession(_ session: URLSession, task: URLSessionTask,
+                  didSendBodyData bytesSent: Int64, totalBytesSent: Int64,
+                  totalBytesExpectedToSend: Int64) {
+    let message = Self.message(sent: min(totalBytesSent, total), total: total)
+    Task { @MainActor in report(message) }
   }
 }

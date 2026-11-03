@@ -20,6 +20,7 @@
 		4E81DF074C0053A84859D6FC /* RxAuthSwift in Frameworks */ = {isa = PBXBuildFile; productRef = A37054CC621FB7B7AB88EB05 /* RxAuthSwift */; };
 		595E005F38A14C35E5E91D32 /* ScanPageEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58042F171E5018B162B78429 /* ScanPageEditor.swift */; };
 		5A39B9EDBF95A1CD09BB502B /* AgentPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 041C60AECB0EAF1B780AFCAB /* AgentPanel.swift */; };
+		5A70A04D951937443958184D /* PDFProcessing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4214AF5D028423A79F8D9A51 /* PDFProcessing.swift */; };
 		66C5FF1C86D22154E0D9F3C2 /* LumikApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 441D34B278F00A90ABFED107 /* LumikApp.swift */; };
 		74B07B4BD57FA81405310208 /* ScanImageProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61814D35B021CF5391A6449C /* ScanImageProcessor.swift */; };
 		909291F9C07FE39E66EC87D3 /* ScanCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DD49BC96EFB33D4C1019669 /* ScanCaptureView.swift */; };
@@ -52,6 +53,7 @@
 		2D86C17A61ACA0B8269DC345 /* MacRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRootView.swift; sourceTree = "<group>"; };
 		37CDC5DCBF7BB6476831A5DF /* ScanSaveOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanSaveOptions.swift; sourceTree = "<group>"; };
 		3F19040F65808B286AE12E67 /* LumikUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LumikUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4214AF5D028423A79F8D9A51 /* PDFProcessing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFProcessing.swift; sourceTree = "<group>"; };
 		441D34B278F00A90ABFED107 /* LumikApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LumikApp.swift; sourceTree = "<group>"; };
 		46011585DEB2F7EA471ABB59 /* icon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = icon.icon; sourceTree = "<group>"; };
 		49A93E0047D8E62772055E83 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
@@ -144,6 +146,7 @@
 				2D86C17A61ACA0B8269DC345 /* MacRootView.swift */,
 				D936E80194B28EC4038C1E08 /* Models.swift */,
 				D8D20CCA5B36F71AE73DD955 /* MoveDocumentView.swift */,
+				4214AF5D028423A79F8D9A51 /* PDFProcessing.swift */,
 				7DD49BC96EFB33D4C1019669 /* ScanCaptureView.swift */,
 				61814D35B021CF5391A6449C /* ScanImageProcessor.swift */,
 				684430CBD1EF749105DAA05C /* ScanLiveView.swift */,
@@ -280,6 +283,7 @@
 				D78FF4D51BF2B500D07E036A /* MacRootView.swift in Sources */,
 				45ABE0D263C7B60BD26B32EF /* Models.swift in Sources */,
 				1C39EDD80D13FE3767669A3A /* MoveDocumentView.swift in Sources */,
+				5A70A04D951937443958184D /* PDFProcessing.swift in Sources */,
 				909291F9C07FE39E66EC87D3 /* ScanCaptureView.swift in Sources */,
 				74B07B4BD57FA81405310208 /* ScanImageProcessor.swift in Sources */,
 				4D65628A56893A7191FDCFC9 /* ScanLiveView.swift in Sources */,

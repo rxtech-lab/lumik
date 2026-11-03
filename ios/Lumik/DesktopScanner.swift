@@ -214,7 +214,7 @@ final class DesktopScanner: NSObject, @preconcurrency ICScannerDeviceDelegate {
       status = "Scanned pages updated."
       return true
     } catch {
-      self.error = error.localizedDescription
+      if !isSilentCancellation(error) { self.error = error.localizedDescription }
       return false
     }
   }
@@ -233,6 +233,7 @@ final class DesktopScanner: NSObject, @preconcurrency ICScannerDeviceDelegate {
   private func fail(_ failure: Error) {
     log("failure", failure: failure)
     running = false
+    if isSilentCancellation(failure) { status = ""; return }
     error = failure.localizedDescription
     status = "Scanning paused. Check the scanner, then start again."
   }
@@ -285,7 +286,7 @@ final class DesktopScanner: NSObject, @preconcurrency ICScannerDeviceDelegate {
   func device(_ device: ICDevice, didOpenSessionWithError error: Error?) {
     log("session.didOpen", device: device, failure: error)
     guard discovering, device === selected else { return }
-    if let error { reportConnectionFailure(error.localizedDescription) }
+    if let error, !isSilentCancellation(error) { reportConnectionFailure(error.localizedDescription) }
   }
   func deviceDidBecomeReady(_ device: ICDevice) {
     log("device.didBecomeReady", device: device)
@@ -303,12 +304,17 @@ final class DesktopScanner: NSObject, @preconcurrency ICScannerDeviceDelegate {
     if scanning { pageFailure = pageCount > 0 }
     scanning = false
     stop()
+    if let error, isSilentCancellation(error) { return }
     reportConnectionFailure(error?.localizedDescription ?? "Scanner session closed. Choose Reconnect to try again.")
   }
   func scannerDevice(_ scanner: ICScannerDevice, didSelect functionalUnit: ICScannerFunctionalUnit, error: Error?) {
     log("feeder.didSelect", device: scanner, failure: error)
     guard discovering, connectionError == nil, scanner === selected else { return }
-    if let error { reportConnectionFailure(error.localizedDescription); return }
+    if let error {
+      connecting = false
+      if !isSilentCancellation(error) { reportConnectionFailure(error.localizedDescription) }
+      return
+    }
     ready = scanner.hasOpenSession && functionalUnit is ICScannerFunctionalUnitDocumentFeeder
     guard ready else { return }
     connecting = false

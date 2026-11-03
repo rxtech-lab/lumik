@@ -5,7 +5,7 @@ import PDFKit
 /// Owns the batch and scanner session; individual documents have their own sheet.
 struct DesktopScanView: View {
   let group: ScanGroup
-  /// Set when scanning for Buddy, which takes each PDF as it is saved.
+  /// Set when scanning for Lumik, which takes each PDF as it is saved.
   var onUploaded: (@MainActor (ScanDocument) -> Void)? = nil
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
@@ -146,13 +146,20 @@ struct DesktopScanView: View {
           // The upload endpoint automatically analyzes and names each PDF.
           let original = try Data(contentsOf: document.url)
           let prepared = try await Task.detached { try ScanExport.prepare(original, dpi: dpi) }.value
-          let uploaded = try await store.upload(prepared, name: "Scan.pdf", groupID: group.id)
+          let uploaded = try await store.upload(prepared, name: "Scan.pdf", groupID: group.id) { message in
+              progress = message
+            }
             onUploaded?(uploaded)
           scanner.documents.removeAll { $0.id == document.id }
           try? FileManager.default.removeItem(at: document.url)
         } catch {
+          if isSilentCancellation(error) {
+            uploading = false
+            progress = nil
+            return
+          }
           failures += 1
-          scanner.error = error.localizedDescription
+          if !isSilentCancellation(error) { scanner.error = error.localizedDescription }
         }
       }
       uploading = false

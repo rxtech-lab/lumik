@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Places Buddy in the right-hand column on Mac, iPad, and an unfolded Duo, and in a sheet on
+/// Places Lumik in the right-hand column on Mac, iPad, and an unfolded Duo, and in a sheet on
 /// iPhone. Both stay attached so a size class change never rebuilds the navigation stack.
 struct AgentPanelHost: ViewModifier {
   @Environment(AppStore.self) private var store
@@ -39,7 +39,7 @@ struct AgentToolbarButton: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
   #endif
   var body: some View {
-    Button("Ask Buddy", systemImage: "sparkles") {
+    Button("Ask Lumik", systemImage: "sparkles") {
       Haptics.tap()
       #if os(iOS)
         if sizeClass == .compact {
@@ -68,7 +68,7 @@ private struct AgentPanel: View {
     VStack(spacing: 0) {
       if store.openDocument != nil {
         Picker("Panel", selection: $store.agentPanelTab) {
-          Text("Buddy").tag(AgentPanelTab.buddy)
+          Text("Lumik").tag(AgentPanelTab.buddy)
           Text("Details").tag(AgentPanelTab.details)
         }.pickerStyle(.segmented).labelsHidden().padding(.horizontal, 12).padding(.vertical, 8)
       }

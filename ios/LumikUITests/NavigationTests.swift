@@ -2,7 +2,7 @@
   import XCTest
 
   final class NavigationTests: XCTestCase {
-    /// iPad and an unfolded Duo show Buddy beside the content; iPhone keeps its tab and a sheet.
+    /// iPad and an unfolded Duo show Lumik beside the content; iPhone keeps its tab and a sheet.
     @MainActor func testBuddyFollowsTheOpenDocument() throws {
       let app = XCUIApplication()
       app.launchArguments = ["--ui-preview"]
@@ -36,9 +36,9 @@
       let context = app.staticTexts["agent-context"].firstMatch
       XCTAssertTrue(context.waitForExistence(timeout: 5))
       XCTAssertEqual(context.label, "2026-11-01-acme.pdf")
-      XCTAssertTrue(app.textFields["Ask Buddy…"].exists)
+      XCTAssertTrue(app.textFields["Ask Lumik…"].exists)
       let panel = XCTAttachment(screenshot: app.screenshot())
-      panel.name = isPad ? "Three columns" : "Buddy sheet"
+      panel.name = isPad ? "Three columns" : "Lumik sheet"
       panel.lifetime = .keepAlways
       add(panel)
       if isPad {

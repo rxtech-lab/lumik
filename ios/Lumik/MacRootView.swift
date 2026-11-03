@@ -10,6 +10,7 @@
     @Environment(AppStore.self) private var store
     @State private var selection: MacDestination?
     @State private var creating = false
+    @State private var subgroupParent: ScanGroup?
     @State private var query = ""
     @State private var groupToDelete: ScanGroup?
     var body: some View {
@@ -29,6 +30,10 @@
                 Image(systemName: "folder.fill").foregroundStyle(Color.buddyGreen)
               }.badge(group.documentCount)
                 .contextMenu {
+                  Button("New subgroup", systemImage: "folder.badge.plus") {
+                    Haptics.tap()
+                    subgroupParent = group
+                  }
                   Button("Delete group", systemImage: "trash", role: .destructive) {
                     groupToDelete = group
                   }
@@ -65,6 +70,9 @@
         }
         .confirmGroupDeletion($groupToDelete)
         .sheet(isPresented: $creating) { GroupEditor().fullSheet().actionFeedback() }
+        .sheet(item: $subgroupParent) { parent in
+          GroupEditor(parent: parent).fullSheet().actionFeedback()
+        }
         .sheet(
           isPresented: Binding(
             get: { store.pendingImport != nil }, set: { if !$0 { store.pendingImport = nil } })

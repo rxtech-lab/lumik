@@ -15,6 +15,81 @@
     }
   ],
   "paths": {
+    "/documents/{documentId}/suggest-group": {
+      "post": {
+        "summary": "Suggest a better existing group using extracted facts; does not move the PDF",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "suggestion"
+                  ],
+                  "properties": {
+                    "suggestion": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "groupId",
+                            "reason"
+                          ],
+                          "properties": {
+                            "groupId": {
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
     "/groups": {
       "get": {
         "summary": "List groups",
@@ -509,7 +584,7 @@
     },
     "/groups/{groupId}/uploads/{uploadId}/complete": {
       "post": {
-        "summary": "Verify uploaded PDF and start processing",
+        "summary": "Verify uploaded PDF; cloud processing by default, or validate and save on-device results without a cloud AI call",
         "parameters": [
           {
             "name": "groupId",
@@ -528,6 +603,47 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "processing": {
+                    "type": "string",
+                    "enum": [
+                      "cloud",
+                      "apple"
+                    ],
+                    "default": "cloud"
+                  },
+                  "result": {
+                    "type": "object",
+                    "required": [
+                      "title",
+                      "fields"
+                    ],
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "maxLength": 255
+                      },
+                      "fields": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "facts": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Success",
@@ -671,6 +787,10 @@
                   "file": {
                     "type": "string",
                     "format": "binary"
+                  },
+                  "localResult": {
+                    "type": "string",
+                    "description": "Optional JSON with title, fields, and facts from Apple Intelligence. Validated against the group schema; skips cloud AI."
                   }
                 }
               }
@@ -1550,7 +1670,7 @@
     },
     "/chat": {
       "post": {
-        "summary": "Chat with Buddy; changes become reviewable proposals",
+        "summary": "Chat with Lumik; changes become reviewable proposals",
         "parameters": [],
         "requestBody": {
           "required": true,

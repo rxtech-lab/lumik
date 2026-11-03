@@ -1,3 +1,4 @@
+import { validateLocalExtraction, saveLocalExtraction } from '@/lib/local-extraction';
 import { account, purgeAccounts } from '@/lib/account';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -9,7 +10,7 @@ import { principal } from '@/lib/auth';
 import { purgeExpiredGroups, Repository } from '@/lib/repository';
 import { ApiError, safeName } from '@/lib/contracts';
 import { getPDF, putPDF, removePDF, presignPDF, promoteUpload } from '@/lib/storage';
-import { chat, chatContext, draftSchema, processDocument, processUploadedDocument, suggestDocumentName } from '@/lib/ai';
+import { chat, chatContext, draftSchema, processDocument, processUploadedDocument, suggestDocumentName, suggestDocumentGroup } from '@/lib/ai';
 import { errorResponse, jsonBody } from '@/lib/http';
 import { db, expirePDFUploads } from '@/lib/db';
 export const runtime = 'nodejs';
@@ -79,6 +80,13 @@ async function route(req: Request, { params }: {
                 return Response.json({ mode: 'direct', id, url });
             }
             if (p.length === 5 && p[4] === 'complete') {
+                const raw = await req.text();
+                const options = z.discriminatedUnion('processing', [
+                    z.object({ processing: z.literal('cloud').default('cloud') }).strict(),
+                    z.object({ processing: z.literal('apple'), result: z.unknown() }).strict(),
+                ]).parse({ processing: 'cloud', ...(raw ? JSON.parse(raw) : {}) });
+                const group = await repo.group(p[1]);
+                const local = options.processing === 'apple' ? validateLocalExtraction(group, options.result) : null;
                 const pending = await db().execute({ sql: 'SELECT * FROM pdf_uploads WHERE id=? AND owner=? AND group_id=?', args: [p[3], repo.owner, p[1]] });
                 const upload = pending.rows[0];
                 if (!upload) throw new ApiError(404, 'Upload not found');
@@ -89,6 +97,7 @@ async function route(req: Request, { params }: {
                 await promoteUpload(String(upload.staging_key), `${p[3]}.pdf`, Number(upload.size));
                 await repo.addDocument(p[1], p[3], String(upload.name), Number(upload.size));
                 await db().execute({ sql: 'INSERT OR IGNORE INTO gc VALUES(?)', args: [upload.staging_key] });
+                if (local) return Response.json(await saveLocalExtraction(repo, group, p[3], local), { status: 201 });
                 await repo.claimDocument(p[3]);
                 after(() => processUploadedDocument(repo, p[3]));
                 return Response.json(await repo.document(p[3]), { status: 201 });
@@ -100,6 +109,9 @@ async function route(req: Request, { params }: {
             if (method === 'POST') {
                 await repo.group(p[1]);
                 const form = await req.formData();
+                const localValue = form.get('localResult');
+                const group = await repo.group(p[1]);
+                const local = localValue === null ? null : validateLocalExtraction(group, JSON.parse(String(localValue)));
                 const file = form.get('file');
                 if (!(file instanceof File) || file.size < 5)
                     throw new ApiError(400, 'Choose a PDF');
@@ -115,6 +127,7 @@ async function route(req: Request, { params }: {
                     await removePDF(`${id}.pdf`);
                     throw e;
                 }
+                if (local) return Response.json(await saveLocalExtraction(repo, group, id, local), { status: 201 });
                 // Claim before responding so clients see "processing" and know to poll.
                 await repo.claimDocument(id);
                 after(() => processUploadedDocument(repo, id));
@@ -164,6 +177,8 @@ async function route(req: Request, { params }: {
             }
         }
         if (p[0] === 'documents' && p.length === 3) {
+            if (p[2] === 'suggest-group' && method === 'POST')
+                return Response.json(await suggestDocumentGroup(repo, p[1]));
             if (p[2] === 'process' && method === 'POST')
                 return Response.json(await processDocument(repo, p[1]));
             if (p[2] === 'rename' && method === 'POST') {

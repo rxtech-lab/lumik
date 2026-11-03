@@ -5,6 +5,7 @@ struct LibraryView: View {
   @Environment(AppStore.self) private var store
   @State private var selection: String?
   @State private var creating = false
+  @State private var subgroupParent: ScanGroup?
   @State private var query = ""
   @State private var groupToDelete: ScanGroup?
   @State private var showingRecycleBin = false
@@ -49,6 +50,10 @@ struct LibraryView: View {
                 }.padding(.vertical, 5)
               }
               .contextMenu {
+                Button("New subgroup", systemImage: "folder.badge.plus") {
+                  Haptics.tap()
+                  subgroupParent = group
+                }
                 Button("Delete group", systemImage: "trash", role: .destructive) {
                   Haptics.tap()
                   groupToDelete = group
@@ -102,10 +107,18 @@ struct LibraryView: View {
         }
       }
       .confirmGroupDeletion($groupToDelete)
+      .sheet(item: Binding(get: { store.groupSuggestions.first }, set: { value in
+        if value == nil && !store.groupSuggestions.isEmpty { store.groupSuggestions.removeFirst() }
+      })) { suggestion in
+        PDFGroupSuggestionView(suggestion: suggestion).fullSheet().actionFeedback()
+      }
       .sheet(isPresented: $showingRecycleBin) {
         RecycleBinView(showsClose: true).fullSheet().actionFeedback()
       }
       .sheet(isPresented: $creating) { GroupEditor().fullSheet().actionFeedback() }
+      .sheet(item: $subgroupParent) { parent in
+        GroupEditor(parent: parent).fullSheet().actionFeedback()
+      }
       .sheet(
         isPresented: Binding(
           get: { store.pendingImport != nil }, set: { if !$0 { store.pendingImport = nil } })
@@ -113,12 +126,12 @@ struct LibraryView: View {
   }
 }
 struct GroupDetailView: View {
+  @State private var importBatch: PDFImportBatch?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let group: ScanGroup
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   @State private var editing = false
-  @State private var creatingSubgroup = false
   @State private var moving: ScanDocument?
   @State private var groupToDelete: ScanGroup?
   @State private var documentToDelete: ScanDocument?
@@ -143,7 +156,7 @@ struct GroupDetailView: View {
           filter = view
         }
       }
-      Button("New filter with Buddy", systemImage: "sparkles") {
+      Button("New filter with Lumik", systemImage: "sparkles") {
         store.askBuddy("Create a filter for this group that lets me choose ")
       }
       if store.documentFilter != nil {
@@ -346,17 +359,13 @@ struct GroupDetailView: View {
               importing = true
             }
             Divider()
-            Button("Organize with Buddy", systemImage: "sparkles") {
+            Button("Organize with Lumik", systemImage: "sparkles") {
               store.askBuddy(
                 group.isInbox
                   ? "Organize the documents in my Inbox."
                   : "Organize the documents in this group into subgroups.")
             }
             if !group.isInbox {
-              Button("New subgroup", systemImage: "folder.badge.plus") {
-                creatingSubgroup = true
-                Haptics.tap()
-              }
               Button("Edit group", systemImage: "slider.horizontal.3") {
                 editing = true
                 Haptics.tap()
@@ -395,9 +404,6 @@ struct GroupDetailView: View {
       }
       .sheet(item: $filter) { FilterSheet(view: $0).fullSheet().actionFeedback() }
       .sheet(isPresented: $editing) { GroupEditor(group: group).fullSheet().actionFeedback() }
-      .sheet(isPresented: $creatingSubgroup) {
-        GroupEditor(parent: group).fullSheet().actionFeedback()
-      }
       .sheet(item: $moving) { MoveDocumentView(document: $0).fullSheet().actionFeedback() }
       // A subgroup opened from its parent has to leave when it is deleted.
       .onChange(of: store.groups) {
@@ -412,25 +418,28 @@ struct GroupDetailView: View {
           try await store.deleteDocument(document)
         }.fullSheet().actionFeedback()
       }
-      .fileImporter(
-        isPresented: $importing, allowedContentTypes: [.pdf], allowsMultipleSelection: true
-      ) { result in
-        Task {
-          await store.perform("Uploading your PDFs…", success: "Uploaded. Reading your PDFs…") {
-            for url in try result.get() {
+      .sheet(item: $importBatch) { batch in
+        PDFImportOptions(urls: batch.urls) {
+          await store.perform("Processing and uploading PDFs…", success: "PDFs saved") {
+            for url in batch.urls {
               let access = url.startAccessingSecurityScopedResource()
               defer { if access { url.stopAccessingSecurityScopedResource() } }
-              try await store.upload(
-                Data(contentsOf: url), name: url.lastPathComponent, groupID: group.id)
+              try await store.upload(Data(contentsOf: url), name: url.lastPathComponent, groupID: group.id)
             }
           }
+        }.fullSheet()
+      }
+      .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf], allowsMultipleSelection: true) { result in
+        switch result {
+        case .success(let urls): importBatch = PDFImportBatch(urls: urls)
+        case .failure(let error): if !isSilentCancellation(error) { store.error = error.localizedDescription }
         }
       }
       .fileExporter(
         isPresented: $exporting, document: exportData, contentType: .zip,
         defaultFilename: group.name
       ) { result in
-        if case .failure(let error) = result { store.error = error.localizedDescription }
+        if case .failure(let error) = result { if !isSilentCancellation(error) { store.error = error.localizedDescription } }
       }
       #if os(macOS)
         .sheet(isPresented: $scanning) {
@@ -625,14 +634,15 @@ struct DeleteView: View {
         Image(systemName: "trash").font(.system(size: 48)).foregroundStyle(.red)
         Text("Delete \(title)?").font(.title2.bold()).multilineTextAlignment(.center)
         Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        Button("Delete permanently", role: .destructive) {
-          Haptics.tap()
-          confirming = true
-        }.buttonStyle(.borderedProminent).tint(.red)
         Spacer()
       }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Delete").toolbar {
           ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+          #if os(macOS)
+            ToolbarItem(placement: .confirmationAction) { deleteButton }
+          #else
+            ToolbarItem(placement: .bottomBar) { deleteButton }
+          #endif
         }
         .confirmationDialog(
           "This cannot be undone.", isPresented: $confirming, titleVisibility: .visible
@@ -643,13 +653,22 @@ struct DeleteView: View {
         }
     }
   }
+
+  private var deleteButton: some View {
+    Button("Delete permanently", role: .destructive) {
+      Haptics.tap()
+      confirming = true
+    }.buttonStyle(.borderedProminent).tint(.red)
+  }
 }
 struct ImportDestinationView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   var body: some View {
     NavigationStack {
-      List(store.groupTree) { row in
+      List {
+        PDFProcessingPicker()
+        ForEach(store.groupTree) { row in
         let group = row.group
         Button {
           Task {
@@ -669,6 +688,7 @@ struct ImportDestinationView: View {
           }
         } label: {
           Text(group.name).padding(.leading, CGFloat(min(row.depth, 6)) * 18)
+        }
         }
       }.overlay {
         if store.groupTree.isEmpty {
@@ -701,5 +721,63 @@ struct ExportFile: FileDocument {
   }
   func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
     FileWrapper(regularFileWithContents: data)
+  }
+}
+
+struct PDFGroupSuggestion: Identifiable {
+  var id: String { document.id }
+  let document: ScanDocument
+  let group: ScanGroup
+  let reason: String
+}
+
+struct PDFGroupSuggestionView: View {
+  @Environment(AppStore.self) private var store
+  @Environment(\.dismiss) private var dismiss
+  let suggestion: PDFGroupSuggestion
+  @State private var saving = false
+  private var destination: String {
+    var names = [suggestion.group.name]
+    var parent = suggestion.group.parentId
+    var visited = Set([suggestion.group.id])
+    while let id = parent, visited.insert(id).inserted,
+      let group = store.groups.first(where: { $0.id == id }) {
+      names.insert(group.name, at: 0)
+      parent = group.parentId
+    }
+    return names.joined(separator: " / ")
+  }
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section("Suggested destination") {
+          LabeledContent("PDF", value: suggestion.document.name)
+          LabeledContent("Group", value: destination)
+          Text(suggestion.reason).foregroundStyle(.secondary)
+        }
+        if !store.movePreservesDetails(suggestion.document, to: suggestion.group) {
+          Text("Moving will extract the destination group's fields and update the filename.")
+        }
+      }
+      .navigationTitle("Move to a better match?")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Skip") { Haptics.tap(); dismiss() }.disabled(saving)
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Confirm") {
+            Haptics.tap()
+            saving = true
+            Task {
+              let success = await store.perform("Moving PDF…", success: "PDF moved") {
+                try await store.moveDocument(suggestion.document, to: suggestion.group.id)
+              }
+              saving = false
+              if success { dismiss() }
+            }
+          }.disabled(saving)
+        }
+      }
+    }.interactiveDismissDisabled(saving)
   }
 }
