@@ -21,6 +21,9 @@ import SwiftUI
   var deletedGroups: [DeletedGroup] = []
   var documents: [ScanDocument] = []
   var messages: [ChatMessage] = []
+  /// Chosen here rather than by the server, so a retry after a failed send stays in the conversation.
+  private var conversationID: String?
+  private var chatHistoryLoaded = false
   var proposals: [Proposal] = []
   var busy: String?
   var notice: String?
@@ -30,13 +33,84 @@ import SwiftUI
   var selectedGroupID: String?
   var views: [GroupView] = []
   var documentFilter: DocumentFilter?
-  var openDocument: ScanDocument?
+  var openDocument: ScanDocument? {
+    didSet { if openDocument?.id != oldValue?.id { dismissedContextDocumentID = nil } }
+  }
+  /// Groups added to the chat by hand. The open group and PDF join on their own unless removed.
+  var chatExtraGroupIDs: [String] = []
+  var dismissedContextGroupID: String?
+  var dismissedContextDocumentID: String?
+  var loadingDocumentID: String?
   var openDocumentPages: Int?
   var sending = false
   var composerDraft = ""
+  /// Scans waiting in the composer. They live in the Inbox until Buddy's plan is approved.
+  var chatAttachments: [ScanDocument] = []
+  /// Scans are read on upload, and Buddy files them from what that finds.
+  var readingAttachments = false
+  private var attachmentPoll: Task<Void, Never>?
   var agentPanelVisible = true
   var agentSheetVisible = false
   var agentPanelTab = AgentPanelTab.buddy
+  var contextDocument: ScanDocument? {
+    openDocument?.id == dismissedContextDocumentID ? nil : openDocument
+  }
+  var contextGroup: ScanGroup? {
+    guard let selectedGroupID, selectedGroupID != dismissedContextGroupID else { return nil }
+    return groups.first { $0.id == selectedGroupID }
+  }
+  var extraContextGroups: [ScanGroup] {
+    chatExtraGroupIDs.filter { $0 != contextGroup?.id }
+      .compactMap { id in groups.first { $0.id == id } }
+  }
+  /// The server takes at most 20 groups for one chat.
+  var addableContextGroups: [ScanGroup] {
+    if extraContextGroups.count + (contextGroup == nil ? 0 : 1) >= 20 { return [] }
+    return groupTree.map(\.group).filter { group in
+      group.id != contextGroup?.id && !chatExtraGroupIDs.contains(group.id)
+    }
+  }
+  func addContextGroup(_ group: ScanGroup) {
+    if group.id == selectedGroupID {
+      dismissedContextGroupID = nil
+    } else {
+      chatExtraGroupIDs.append(group.id)
+    }
+  }
+  func removeContextGroup(_ group: ScanGroup) {
+    chatExtraGroupIDs.removeAll { $0 == group.id }
+    if group.id == selectedGroupID { dismissedContextGroupID = group.id }
+  }
+  func groupPath(_ group: ScanGroup) -> String {
+    guard let parent = groups.first(where: { $0.id == group.parentId }) else { return group.name }
+    return "\(groupPath(parent)) / \(group.name)"
+  }
+  var inbox: ScanGroup? { groups.first(where: \.isInbox) }
+  var topLevelGroups: [ScanGroup] { groups.filter { !$0.isInbox && $0.parentId == nil } }
+  func subgroups(of id: String) -> [ScanGroup] {
+    groups.filter { $0.parentId == id }
+      .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+  }
+  /// Top-level groups, or any group at all when searching, since subgroups are otherwise a level down.
+  func sidebarGroups(matching query: String) -> [ScanGroup] {
+    if query.isEmpty { return topLevelGroups }
+    return groups.filter { !$0.isInbox && $0.name.localizedCaseInsensitiveContains(query) }
+  }
+  func groupSummary(_ group: ScanGroup) -> String {
+    let fields = group.schema.object["properties"]?.object.count ?? 0
+    let count = subgroups(of: group.id).count
+    let nested = count == 0 ? "" : count == 1 ? " · 1 subgroup" : " · \(count) subgroups"
+    return "\(group.documentCountText)\(nested) · \(fields) fields"
+  }
+  /// Every group a document can be filed in, each followed by its subgroups.
+  var groupTree: [GroupTreeRow] {
+    func rows(_ groups: [ScanGroup], depth: Int) -> [GroupTreeRow] {
+      groups.flatMap {
+        [GroupTreeRow(group: $0, depth: depth)] + rows(subgroups(of: $0.id), depth: depth + 1)
+      }
+    }
+    return rows(topLevelGroups, depth: 0)
+  }
   var visibleDocuments: [ScanDocument] {
     guard let documentFilter else { return documents }
     return documents.filter { documentFilter.documentIDs.contains($0.id) }
@@ -195,7 +269,10 @@ import SwiftUI
     deletedGroups.removeAll { $0.id == group.id }
   }
   func loadDocuments(_ id: String) async {
-    if selectedGroupID != id { documentFilter = nil }
+    if selectedGroupID != id {
+      documentFilter = nil
+      dismissedContextGroupID = nil
+    }
     if isPreview {
       selectedGroupID = id
       documents = [
@@ -300,7 +377,7 @@ import SwiftUI
       body: JSONEncoder().encode(draft))
     await refresh()
   }
-  func upload(_ data: Data, name: String, groupID: String) async throws {
+  @discardableResult func upload(_ data: Data, name: String, groupID: String) async throws -> ScanDocument {
     struct UploadTicket: Decodable { let mode: String; let id: String?; let url: URL? }
     let ticketBody = try JSONSerialization.data(withJSONObject: ["name": name, "size": data.count])
     let ticket = try JSONDecoder().decode(UploadTicket.self, from: await request(
@@ -314,10 +391,10 @@ import SwiftUI
       guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
         throw APIError(message: "PDF upload failed. Please save again to retry.")
       }
-      _ = try await request("groups/\(groupID)/uploads/\(id)/complete", method: "POST")
-      await loadDocuments(groupID)
-      await refresh()
-      return
+      let document = try await fetch(
+        ScanDocument.self, "groups/\(groupID)/uploads/\(id)/complete", method: "POST")
+      await uploadFinished(in: groupID)
+      return document
     }
     guard ticket.mode == "local" else { throw APIError(message: "Invalid upload response.") }
     let boundary = UUID().uuidString
@@ -326,11 +403,80 @@ import SwiftUI
         .utf8)
     body.append(data)
     body.append(Data("\r\n--\(boundary)--\r\n".utf8))
-    _ = try await request(
-      "groups/\(groupID)/documents", method: "POST", body: body,
-      contentType: "multipart/form-data; boundary=\(boundary)")
-    await loadDocuments(groupID)
+    let document = try JSONDecoder().decode(
+      ScanDocument.self,
+      from: await request(
+        "groups/\(groupID)/documents", method: "POST", body: body,
+        contentType: "multipart/form-data; boundary=\(boundary)"))
+    await uploadFinished(in: groupID)
+    return document
+  }
+  /// A scan sent to the Inbox from Buddy must not replace the group that is open.
+  private func uploadFinished(in groupID: String) async {
+    if selectedGroupID == groupID { await loadDocuments(groupID) }
     await refresh()
+  }
+  func prepareInbox() async throws -> ScanGroup {
+    try await fetch(ScanGroup.self, "inbox", method: "POST")
+  }
+  func attachScan(_ document: ScanDocument) {
+    chatAttachments.append(document)
+    watchAttachments()
+  }
+  func removeAttachment(_ document: ScanDocument) {
+    chatAttachments.removeAll { $0.id == document.id }
+    watchAttachments()
+  }
+  private func watchAttachments() {
+    attachmentPoll?.cancel()
+    guard let groupID = chatAttachments.first?.groupId,
+      chatAttachments.contains(where: { $0.status == "processing" })
+    else {
+      readingAttachments = false
+      return
+    }
+    readingAttachments = true
+    attachmentPoll = Task { [weak self] in
+      // Slightly outlasts the server's three-minute processing lease, then lets the user send anyway.
+      for _ in 0..<64 {
+        try? await Task.sleep(for: .seconds(3))
+        guard let self, !Task.isCancelled else { return }
+        guard let current = try? await self.fetch([ScanDocument].self, "groups/\(groupID)/documents"),
+          !Task.isCancelled
+        else { continue }
+        self.chatAttachments = self.chatAttachments.map { attachment in
+          current.first { $0.id == attachment.id } ?? attachment
+        }
+        if !self.chatAttachments.contains(where: { $0.status == "processing" }) { break }
+      }
+      if !Task.isCancelled { self?.readingAttachments = false }
+    }
+  }
+  func renameDocument(_ document: ScanDocument, to name: String) async throws {
+    let renamed = try await fetch(
+      ScanDocument.self, "documents/\(document.id)/rename", method: "POST",
+      body: JSONEncoder().encode(["name": name]))
+    if let index = documents.firstIndex(where: { $0.id == renamed.id }) {
+      documents[index] = renamed
+    }
+  }
+  func moveDocument(_ document: ScanDocument, to groupID: String) async throws {
+    _ = try await fetch(
+      ScanDocument.self, "documents/\(document.id)/move", method: "POST",
+      body: JSONEncoder().encode(["groupId": groupID]))
+    // A poll already in flight could bring the moved row back.
+    documentPoll?.cancel()
+    documents.removeAll { $0.id == document.id }
+    pollProcessingDocuments(document.groupId)
+    await refresh()
+  }
+  /// Moving between groups with different fields makes the server read the PDF again.
+  func movePreservesDetails(_ document: ScanDocument, to group: ScanGroup) -> Bool {
+    groups.first { $0.id == document.groupId }?.schema == group.schema
+  }
+  func suggestDocumentName(_ document: ScanDocument) async throws -> String {
+    struct Reply: Decodable { var name: String }
+    return try await fetch(Reply.self, "documents/\(document.id)/suggest-name", method: "POST").name
   }
   func deleteDocument(_ document: ScanDocument) async throws {
     _ = try await request("documents/\(document.id)", method: "DELETE")
@@ -380,6 +526,28 @@ import SwiftUI
     agentPanelVisible = true
     agentSheetVisible = true
   }
+  /// Restores the saved conversation once per sign-in, without replacing one already under way.
+  func loadChatHistory() async {
+    if isPreview || chatHistoryLoaded { return }
+    do {
+      let history = try await fetch(ChatHistory.self, "chat/messages")
+      chatHistoryLoaded = true
+      guard messages.isEmpty, conversationID == nil else { return }
+      conversationID = history.conversationId
+      messages = history.messages.map {
+        ChatMessage(role: $0.role, content: $0.content, activity: $0.activity)
+      }
+    } catch {
+      self.error = error.localizedDescription
+    }
+  }
+  func startNewConversation() {
+    messages = []
+    conversationID = nil
+    chatExtraGroupIDs = []
+    dismissedContextGroupID = nil
+    dismissedContextDocumentID = nil
+  }
   func send(_ text: String) async {
     struct Request: Encodable {
       struct Message: Encodable {
@@ -389,19 +557,34 @@ import SwiftUI
       struct Context: Encodable {
         var groupId: String?
         var documentId: String?
+        var groupIds: [String]
+        var attachedDocumentIds: [String]?
       }
+      var conversationId: String
       var messages: [Message]
       var context: Context
     }
-    messages.append(ChatMessage(role: "user", content: text))
+    let attached = chatAttachments
+    // Written into the message so it stays visible, and known to Buddy, on later turns.
+    let names = attached.prefix(10).map(\.name).joined(separator: ", ")
+    let more = attached.count > 10 ? " and \(attached.count - 10) more" : ""
+    let content = attached.isEmpty ? text : "\(text)\n\nAttached: \(names)\(more)"
+    chatAttachments = []
+    messages.append(ChatMessage(role: "user", content: content))
+    let conversation = conversationID ?? UUID().uuidString
+    conversationID = conversation
     sending = true
     defer { sending = false }
     do {
       // The PDF stays readable while Buddy works, so this does not block the screen.
       let body = try JSONEncoder().encode(
         Request(
+          conversationId: conversation,
           messages: messages.suffix(30).map { .init(role: $0.role, content: $0.content) },
-          context: .init(groupId: selectedGroupID, documentId: openDocument?.id)))
+          context: .init(
+            groupId: contextGroup?.id, documentId: contextDocument?.id,
+            groupIds: (contextGroup.map { [$0.id] } ?? []) + extraContextGroups.map(\.id),
+            attachedDocumentIds: attached.isEmpty ? nil : attached.map(\.id))))
       let reply = try await fetch(ChatReply.self, "chat", method: "POST", body: body)
       messages.append(
         ChatMessage(
@@ -415,15 +598,25 @@ import SwiftUI
       Haptics.success()
     } catch {
       self.error = error.localizedDescription
+      // Kept in the composer so the same scans go with the next try.
+      if chatAttachments.isEmpty { chatAttachments = attached }
       Haptics.failure()
     }
   }
   func logout() async {
     documentPoll?.cancel()
+    attachmentPoll?.cancel()
+    chatAttachments = []
+    readingAttachments = false
+    chatExtraGroupIDs = []
+    dismissedContextGroupID = nil
+    dismissedContextDocumentID = nil
     await auth.logout()
     groups = []
     documents = []
     messages = []
+    conversationID = nil
+    chatHistoryLoaded = false
     proposals = []
     selectedGroupID = nil
     views = []

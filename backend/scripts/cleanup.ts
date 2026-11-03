@@ -1,7 +1,9 @@
+import { purgeAccounts } from '../lib/account';
 import './env';
 import { db, expirePDFUploads } from '../lib/db';
 import { purgeExpiredGroups } from '../lib/repository';
 import { removePDF } from '../lib/storage';
+await purgeAccounts();
 await purgeExpiredGroups();
     await expirePDFUploads();
 const rows = await db().execute('SELECT storage_key FROM gc LIMIT 1000');

@@ -5,12 +5,15 @@ import PDFKit
 /// Owns the batch and scanner session; individual documents have their own sheet.
 struct DesktopScanView: View {
   let group: ScanGroup
+  /// Set when scanning for Buddy, which takes each PDF as it is saved.
+  var onUploaded: (@MainActor (ScanDocument) -> Void)? = nil
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   @State private var scanner = DesktopScanner()
   @State private var capturing = false
   @State private var closing = false
   @State private var uploading = false
+  @State private var saveOptions = false
   @State private var progress: String?
   @State private var preview: ScannedDocument?
   @State private var deleting: ScannedDocument?
@@ -72,7 +75,7 @@ struct DesktopScanView: View {
             if !scanner.documents.isEmpty {
               Button(scanner.documents.count == 1 ? "Save PDF" : "Save \(scanner.documents.count) PDFs") {
                 if scanner.documents.contains(where: \.incomplete) { confirmPartial = true }
-                else { uploadBatch() }
+                else { saveOptions = true }
               }
               .buttonStyle(.borderedProminent)
               .keyboardShortcut(.defaultAction)
@@ -86,6 +89,9 @@ struct DesktopScanView: View {
       }
       .overlay(alignment: .top) {
         ScanStatusOverlay(message: progress ?? notice, working: uploading)
+      }
+      .sheet(isPresented: $saveOptions) {
+        ScanSaveOptions(count: scanner.documents.count) { dpi in uploadBatch(dpi: dpi) }.fullSheet()
       }
       .sheet(isPresented: $capturing) { MultipageScanSheet(scanner: scanner).fullSheet() }
       .sheet(item: $preview) { document in
@@ -101,7 +107,7 @@ struct DesktopScanView: View {
         Button("Discard and Close", role: .destructive) { dismiss() }
       }
       .confirmationDialog("Save partial scans? Review them first to check for missing pages.", isPresented: $confirmPartial, titleVisibility: .visible) {
-        Button("Save Anyway") { uploadBatch() }
+        Button("Save Anyway") { saveOptions = true }
       }
       .confirmationDialog("Discard this scanned document?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
         Button("Discard", role: .destructive) {
@@ -129,7 +135,7 @@ struct DesktopScanView: View {
     }
   }
 
-  private func uploadBatch() {
+  private func uploadBatch(dpi: Int) {
     uploading = true
     let batch = scanner.documents
     Task {
@@ -138,7 +144,10 @@ struct DesktopScanView: View {
         progress = "Saving PDF \(index + 1) of \(batch.count)…"
         do {
           // The upload endpoint automatically analyzes and names each PDF.
-          try await store.upload(Data(contentsOf: document.url), name: "Scan.pdf", groupID: group.id)
+          let original = try Data(contentsOf: document.url)
+          let prepared = try await Task.detached { try ScanExport.prepare(original, dpi: dpi) }.value
+          let uploaded = try await store.upload(prepared, name: "Scan.pdf", groupID: group.id)
+            onUploaded?(uploaded)
           scanner.documents.removeAll { $0.id == document.id }
           try? FileManager.default.removeItem(at: document.url)
         } catch {

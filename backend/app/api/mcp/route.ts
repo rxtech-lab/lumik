@@ -18,7 +18,7 @@ export async function POST(request: Request) {
         server.registerTool('analyze_document', {description:'Analyze a PDF and propose extracted fields and a filename for user review',inputSchema:{documentId:z.string()}},async({documentId})=>content(await proposeDocumentAnalysis(repo,documentId)));
         server.registerTool('propose_change', { description: 'Prepare a change for user review in Lumik. Does not apply changes.', inputSchema: { mutation: mutationInput } }, async ({ mutation }) => content(await repo.propose(mutation)));
         const tools = agentTools(repo);
-        for (const name of ['read_pdf', 'run_js', 'run_sql', 'list_views'] as const) {
+        for (const name of ['rename_document', 'read_pdf', 'run_js', 'run_sql', 'list_views'] as const) {
             const definition = tools[name];
             server.registerTool(name, { description: definition.description as string, inputSchema: (definition.inputSchema as z.ZodObject).shape }, async (input: unknown) => content(await (definition.execute as (input: unknown, options: unknown) => Promise<unknown>)(input, {})));
         }

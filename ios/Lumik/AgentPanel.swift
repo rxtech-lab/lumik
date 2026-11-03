@@ -61,6 +61,7 @@ enum AgentPanelTab: Hashable {
   case details
 }
 private struct AgentPanel: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(AppStore.self) private var store
   var body: some View {
     @Bindable var store = store
@@ -72,7 +73,14 @@ private struct AgentPanel: View {
         }.pickerStyle(.segmented).labelsHidden().padding(.horizontal, 12).padding(.vertical, 8)
       }
       if let document = store.openDocument, store.agentPanelTab == .details {
-        DocumentDetailsForm(document: document, pageCount: store.openDocumentPages)
+        ZStack {
+          if store.loadingDocumentID == document.id {
+            Color.clear
+          } else {
+            DocumentDetailsForm(document: document, pageCount: store.openDocumentPages)
+              .transition(.opacity)
+          }
+        }.animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: store.loadingDocumentID)
       } else {
         ChatThread()
       }

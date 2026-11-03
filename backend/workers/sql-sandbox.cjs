@@ -35,7 +35,7 @@ function run(db, { sql, params }) {
 }
 initSqlJs().then(SQL => {
     const db = new SQL.Database();
-    load(db, 'groups', ['id', 'name', 'instructions', 'created_at'], workerData.groups);
+    load(db, 'groups', ['id', 'parent_id', 'kind', 'name', 'instructions', 'created_at'], workerData.groups);
     load(db, 'documents', ['id', 'group_id', 'name', 'original_name', 'status', 'size', 'created_at', 'data', 'additional'], workerData.documents);
     const results = {};
     for (const [name, query] of Object.entries(workerData.queries)) {

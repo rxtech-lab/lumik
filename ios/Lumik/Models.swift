@@ -37,6 +37,7 @@ indirect enum JSONValue: Codable, Hashable, Sendable {
   var object: [String: JSONValue] { if case .object(let v) = self { v } else { [:] } }
   var array: [JSONValue] { if case .array(let v) = self { v } else { [] } }
   var string: String { if case .string(let v) = self { v } else { "" } }
+  var bool: Bool { if case .bool(let v) = self { v } else { false } }
   var pretty: String {
     let e = JSONEncoder()
     e.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -59,6 +60,18 @@ struct ScanGroup: Codable, Identifiable, Hashable, Sendable {
   var schema: JSONValue
   var createdAt: String
   var documentCount: Int
+  /// The group this one sits inside. Optional, like `kind`, for responses from older servers.
+  var parentId: String? = nil
+  var kind: String? = nil
+  /// Holds scans that have not been filed yet. It can't be edited, deleted, or nested into.
+  var isInbox: Bool { kind == "inbox" }
+  var documentCountText: String { documentCount == 1 ? "1 document" : "\(documentCount) documents" }
+}
+/// One line of the group hierarchy, for pickers that show it indented.
+struct GroupTreeRow: Identifiable, Sendable {
+  let group: ScanGroup
+  let depth: Int
+  var id: String { group.id }
 }
 /// A group waiting in the Recycle Bin until `purgeAt`.
 struct DeletedGroup: Codable, Identifiable, Hashable, Sendable {
@@ -79,14 +92,18 @@ struct GroupDraft: Codable, Sendable {
   var namingTemplate = "{date}-{title}"
   var extractAdditional = false
   var schema = JSONValue.emptySchema
-  init(group: ScanGroup? = nil) {
-    if let group {
-      name = group.name
-      instructions = group.instructions
-      namingTemplate = group.namingTemplate
-      extractAdditional = group.extractAdditional
-      schema = group.schema
+  /// Sent only when creating a subgroup; a group stays where it was created.
+  var parentId: String?
+  /// A new subgroup starts with its parent's setup, so PDFs keep their fields moving between them.
+  init(group: ScanGroup? = nil, parent: ScanGroup? = nil) {
+    if let source = group ?? parent {
+      instructions = source.instructions
+      namingTemplate = source.namingTemplate
+      extractAdditional = source.extractAdditional
+      schema = source.schema
     }
+    if let group { name = group.name }
+    parentId = parent?.id
   }
 }
 /// What the agent found beyond the group's schema, and a json-render spec that shows it.
@@ -152,6 +169,15 @@ struct ChatReply: Decodable, Sendable {
   var proposals: [Proposal]
   var selection: ChatSelection?
   var activity: [ChatActivity]
+}
+struct ChatHistory: Decodable, Sendable {
+  struct Entry: Decodable, Sendable {
+    var role: String
+    var content: String
+    var activity: [ChatActivity]
+  }
+  var conversationId: String?
+  var messages: [Entry]
 }
 struct APIError: LocalizedError {
   let message: String

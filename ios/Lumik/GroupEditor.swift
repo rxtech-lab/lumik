@@ -2,12 +2,19 @@ import SwiftUI
 
 struct GroupEditor: View {
   var group: ScanGroup?
+  /// Set when creating a subgroup.
+  var parent: ScanGroup?
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   @State private var draft: GroupDraft
-  init(group: ScanGroup? = nil) {
+  init(group: ScanGroup? = nil, parent: ScanGroup? = nil) {
     self.group = group
-    _draft = State(initialValue: GroupDraft(group: group))
+    self.parent = parent
+    _draft = State(initialValue: GroupDraft(group: group, parent: parent))
+  }
+  private var title: String {
+    if group != nil { return "Edit group" }
+    return parent == nil ? "New group" : "New subgroup"
   }
   var body: some View {
     NavigationStack {
@@ -16,6 +23,15 @@ struct GroupEditor: View {
           TextField("Group name", text: $draft.name)
           TextField("What should Buddy look for?", text: $draft.instructions, axis: .vertical)
             .lineLimit(3...6)
+        }
+        if let parent {
+          Section {
+            LabeledContent("Inside", value: parent.name)
+          } footer: {
+            Text(
+              "Starts with the same fields and naming as \(parent.name), so PDFs keep their details when they move between the two."
+            )
+          }
         }
         Section {
           NavigationLink {
@@ -47,7 +63,7 @@ struct GroupEditor: View {
             "Use {date}, {title}, or a field such as {vendor}. Example: {date}-{vendor}-{title}.pdf. New PDFs then follow the names already in this group, including ones you edited."
           )
         }
-      }.formStyle(.grouped).navigationTitle(group == nil ? "New group" : "Edit group")
+      }.formStyle(.grouped).navigationTitle(title)
         .toolbar {
           ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
           ToolbarItem(placement: .confirmationAction) {

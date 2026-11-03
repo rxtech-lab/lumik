@@ -10,7 +10,10 @@ A native SwiftUI document workspace for iPhone, iPad, iPhone Duo, and Mac, with 
 - PDF import from Files, Finder, and Open In; HP-produced PDFs can be imported after scanning in HP’s app.
 - Private S3-compatible PDF storage; Turso metadata; owner-scoped access on every API.
 - AI SDK + Vercel AI Gateway using `openai/gpt-6-luna` for PDF extraction, content-based naming, schema drafting, and agent chat.
-- PDF preview, extraction retry, editable extracted data, and group ZIP export with a JSON manifest.
+- PDF preview, extraction retry, editable extracted data, renaming by hand or with an AI suggestion from the document's context menu, and group ZIP export with a JSON manifest.
+- Subgroups inside any group, with PDFs moved between groups, subgroups, and parents from each PDF's menu. A subgroup starts with its parent's fields, so those moves keep extracted data; moving to a group with different fields reads the PDF again and renames it.
+- Buddy's message field shows what the chat is about: the open group and PDF, which can be removed, plus any more groups you add from its add menu. These focus Buddy without limiting what it can reach.
+- Scanning or importing PDFs from Buddy's add menu. They wait in an Inbox, which appears in the library while it holds documents, and Buddy proposes where to file them, creating groups or subgroups if needed. The whole plan is one proposal, applied all at once.
 - Agent and MCP changes are stored as proposals. A dedicated review sheet and native confirmation apply each proposal once.
 - Dedicated sheets for editing/deletion, dropdown action menus, overlay operation feedback, mobile haptics, and full-height Mac sheets.
 - Adaptive split navigation for larger screens and Duo; iOS 27’s prominent Buddy tab, with a search-role fallback on iOS 26.
@@ -41,11 +44,11 @@ For local development, `.env.example` uses a local libSQL file and local PDF dir
 
 The existing public OAuth client keeps its registered redirect **`scannerbuddy://oauth/callback`** for sign-in compatibility. Do not reuse Sticker Gen’s client credentials. RxAuthSwift manages the OAuth flow and Keychain token storage. Apple identity-provider sign-in uses the browser flow, so this project does not require a separate native Sign in with Apple entitlement. The backend validates RS256 signature, issuer, expiry, subject, and allowed `client_id`, matching the reference app’s RxLab token convention. The Apple app is a public OAuth client. The backend only verifies bearer tokens using the issuer’s public JWKS; it does not run a web sign-in flow or need an OAuth client secret or Auth.js session secret.
 
-Run `bun run build` and `bun run start` for production. Run migrations before starting the server. The native app requests a ten-minute presigned PUT URL, uploads the PDF directly to private S3-compatible storage, then completes the upload with a small API request. Completion validates size and PDF signature before copying the bytes to a separate final key and starting extraction. Storage credentials need GetObject, PutObject, and DeleteObject access. Run migrations before deploying this flow (it adds `pdf_uploads`). Local development with `LOCAL_STORAGE_DIR` uses the authenticated multipart endpoint. Keep function duration at 120 seconds for extraction. Schedule `storage:cleanup` to remove abandoned staging uploads after expiry.
+Run `bun run build` and `bun run start` for production. Run migrations before starting the server. The native app requests a ten-minute presigned PUT URL, uploads the PDF directly to private S3-compatible storage, then completes the upload with a small API request. Completion validates size and PDF signature before copying the bytes to a separate final key and starting extraction. Storage credentials need GetObject, PutObject, and DeleteObject access. Run migrations before deploying this flow (it adds `pdf_uploads`). Subgroups and the Inbox also need them (they add `groups.parent_id` and `groups.kind`). Local development with `LOCAL_STORAGE_DIR` uses the authenticated multipart endpoint. Keep function duration at 120 seconds for extraction. Schedule `storage:cleanup` to remove abandoned staging uploads after expiry.
 
 Xcode Debug uses `http://localhost:3000`; Release uses `https://www.lumik.dev`. These URLs take precedence over `Local.xcconfig`. Localhost works for macOS and the iOS Simulator; a physical iPhone needs a separately configured reachable development host.
 
-Deleting a group moves it to the Recycle Bin, where it can be restored for 30 days. After that, or when it is deleted from the bin, its documents are removed and its PDFs are queued for cleanup in one transaction. Deleting a single document skips the bin. Failed cleanup is retried on later deletes/approvals. Schedule `bun run storage:cleanup` regularly to purge expired groups and drain the queue even when there is no user activity. Keep the storage bucket private throughout.
+Deleting a group moves it and its subgroups to the Recycle Bin, where they can be restored together for 30 days. After that, or when it is deleted from the bin, its documents are removed and its PDFs are queued for cleanup in one transaction. Deleting a single document skips the bin. Failed cleanup is retried on later deletes/approvals. Schedule `bun run storage:cleanup` regularly to purge expired groups and drain the queue even when there is no user activity. Keep the storage bucket private throughout.
 
 ## Apple app setup
 
@@ -103,3 +106,21 @@ Reference patterns came from `~/Desktop/sticker-gen` (RxLab auth) and `~/Desktop
 ## Landing page
 
 The public `/` route introduces Lumik with responsive Material-inspired layouts, reduced-motion-aware animation, and generated transparent PNG artwork. Download actions open a native browser dialog. The page checks the latest published GitHub release every five minutes and links to its `Lumik.dmg` asset. Until a release is available, it shows the package version as a release in preparation and links to the release listing. Keep `backend/package.json` version aligned with `ios/project.yml` when updating the unreleased version. iOS download details remain pending until a distribution URL is available.
+
+### Account lifecycle
+
+Run `npm run db:migrate` before deploying account endpoints. `GET /api/v1/account`
+returns PDF `usedBytes` (including Recycle Bin), nullable `limitBytes`, and nullable
+`deleteAt` in epoch milliseconds. `POST` schedules deletion seven days ahead
+(idempotently); `DELETE` cancels before the deadline. Expired accounts are denied
+access across authenticated APIs. This deletes Lumik data, not the RxLab identity.
+
+Configure `CRON_SECRET` in Vercel for the daily `/api/cron/accounts` job. It removes
+expired account records and queues PDF objects for retryable cleanup; physical
+removal occurs on the next successful job after the seven-day deadline. The
+`storage:cleanup` script also processes expired accounts. A minimal owner tombstone
+prevents existing credentials from recreating a deleted account.
+
+`GET /api/v1/legal/terms` and `/api/v1/legal/privacy` serve Markdown from
+`backend/legal`. The bundled text is initial draft copy and requires product/legal
+review before publication. Native clients render these documents in dedicated sheets.

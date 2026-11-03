@@ -8,10 +8,13 @@ struct DocumentDetailView: View {
   #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
   #endif
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var preview = PDFLoadState.loading
   @State private var reading = false
   @State private var editing = false
+  @State private var renaming: DocumentRename?
   @State private var deleting = false
+  @State private var moving: ScanDocument?
   @State private var exporting = false
   @State private var exportFile: ExportFile?
   /// Mac and iPad read the PDF beside an inspector; iPhone leads with a page you tap to open.
@@ -24,14 +27,18 @@ struct DocumentDetailView: View {
   }
   private var pageCount: Int? { if case .loaded(let pdf) = preview { pdf.pageCount } else { nil } }
   private var isProcessing: Bool { document.status == "processing" }
+  private var isLoading: Bool { if case .loading = preview { true } else { false } }
   var body: some View {
-    Group {
-      if isRegular {
+    ZStack {
+      if isLoading {
+        ResourceLoadingView().background(Color.pdfCanvas).transition(.opacity)
+      } else if isRegular {
         pdfPane
       } else {
         DocumentDetailsForm(document: document, pageCount: pageCount) { pageHero }
       }
-    }.navigationTitle(document.name)
+    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: isLoading)
+      .navigationTitle(document.name)
       #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
       #endif
@@ -42,7 +49,10 @@ struct DocumentDetailView: View {
         }
       }
       // Buddy and the right-hand details follow whichever PDF is on screen.
-      .onChange(of: document, initial: true) { store.openDocument = document }
+      .onChange(of: document, initial: true) {
+        store.openDocument = document
+        if isLoading { store.loadingDocumentID = document.id }
+      }
       .onChange(of: pageCount, initial: true) { store.openDocumentPages = pageCount }
       .onAppear {
         store.openDocument = document
@@ -81,6 +91,14 @@ struct DocumentDetailView: View {
       .sheet(isPresented: $editing) {
         DocumentEditor(document: document) { document = $0 }.fullSheet().actionFeedback()
       }
+      .sheet(item: $renaming) { RenameDocumentView(request: $0).fullSheet().actionFeedback() }
+      .sheet(
+        item: $moving,
+        // A PDF moved from here no longer belongs to the list behind it.
+        onDismiss: { if !store.documents.contains(where: { $0.id == document.id }) { dismiss() } }
+      ) {
+        MoveDocumentView(document: $0).fullSheet().actionFeedback()
+      }
       .sheet(
         isPresented: $deleting,
         onDismiss: { if !store.documents.contains(where: { $0.id == document.id }) { dismiss() } }
@@ -111,6 +129,19 @@ struct DocumentDetailView: View {
         }.disabled(isProcessing)
       }
       Section {
+        Button("Rename", systemImage: "character.cursor.ibeam") {
+          renaming = DocumentRename(document: document)
+          Haptics.tap()
+        }.disabled(isProcessing)
+        Button("Rename with AI", systemImage: "sparkles") {
+          renaming = DocumentRename(document: document, suggestsName: true)
+          Haptics.tap()
+        }.disabled(isProcessing)
+      }
+      Section {
+        MoveDocumentButtons(store: store, document: document, moving: $moving) { dismiss() }
+      }
+      Section {
         Button("Save PDF", systemImage: "square.and.arrow.up") {
           Task {
             await store.perform("Preparing PDF…", success: "PDF ready") {
@@ -136,7 +167,7 @@ struct DocumentDetailView: View {
     switch preview {
     case .loaded(let pdf): PDFPreview(data: pdf.data)
     case .loading:
-      ProgressView("Loading PDF…").frame(maxWidth: .infinity, maxHeight: .infinity)
+      ResourceLoadingView()
         .background(Color.pdfCanvas)
     case .failed(let message):
       previewFailure(message).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -170,15 +201,20 @@ struct DocumentDetailView: View {
       }.buttonStyle(.plain).accessibilityLabel("Open PDF").frame(maxWidth: .infinity)
         .padding(.vertical, 8)
     case .loading:
-      ProgressView("Loading PDF…").frame(maxWidth: .infinity, minHeight: 240)
+      ResourceLoadingView().frame(minHeight: 360)
     case .failed(let message):
       previewFailure(message)
     }
   }
   private func loadPDF() async {
     preview = .loading
+    store.loadingDocumentID = document.id
+    defer {
+      if store.loadingDocumentID == document.id { store.loadingDocumentID = nil }
+    }
     do {
       let data = try await store.request("documents/\(document.id)/pdf")
+      guard !Task.isCancelled else { return }
       if let pdf = LoadedPDF(data: data) {
         preview = .loaded(pdf)
       } else {
@@ -309,6 +345,9 @@ private struct DetailRow: View {
 }
 extension String {
   fileprivate var fieldLabel: String { replacingOccurrences(of: "_", with: " ").capitalized }
+  fileprivate var withoutPDFExtension: String {
+    lowercased().hasSuffix(".pdf") ? String(dropLast(4)) : self
+  }
 }
 extension JSONValue {
   fileprivate var displayText: String {
@@ -365,6 +404,67 @@ extension Color {
     #else
       Color(uiColor: .secondarySystemBackground)
     #endif
+  }
+}
+struct DocumentRename: Identifiable {
+  let document: ScanDocument
+  var suggestsName = false
+  var id: String { document.id }
+}
+/// AI only fills in the field, so a suggested name is always reviewed before it is saved.
+struct RenameDocumentView: View {
+  let request: DocumentRename
+  @Environment(AppStore.self) private var store
+  @Environment(\.dismiss) private var dismiss
+  @State private var name: String
+  init(request: DocumentRename) {
+    self.request = request
+    _name = State(initialValue: request.document.name.withoutPDFExtension)
+  }
+  private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+  private var canSave: Bool {
+    store.busy == nil && !trimmedName.isEmpty
+      && trimmedName != request.document.name.withoutPDFExtension
+  }
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section("PDF name") {
+          HStack {
+            TextField("Filename", text: $name).labelsHidden().disabled(store.busy != nil)
+            Text(".pdf").foregroundStyle(.secondary)
+          }
+        }
+        Section {
+          Button("Suggest a name with AI", systemImage: "sparkles") { suggest() }
+            .disabled(store.busy != nil)
+        } footer: {
+          Text("Reads this PDF and follows the naming of your group’s recent documents.")
+        }
+      }.formStyle(.grouped).navigationTitle("Rename PDF").toolbar {
+        ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Save") {
+            Task {
+              if await store.perform(
+                "Renaming PDF…", success: "Renamed",
+                { try await store.renameDocument(request.document, to: trimmedName) })
+              {
+                dismiss()
+              }
+            }
+          }.disabled(!canSave)
+        }
+      }
+      .onAppear { if request.suggestsName { suggest() } }
+    }
+  }
+  private func suggest() {
+    Task {
+      await store.perform("Reading this PDF…", success: "Name suggested") {
+        name = try await store.suggestDocumentName(request.document).withoutPDFExtension
+      }
+    }
   }
 }
 struct DocumentEditor: View {
