@@ -7,7 +7,8 @@ Ordinary app bearer tokens no longer authorize MCP; app API authentication remai
 ## Deployment
 
 1. Register a dedicated confidential RxAuth client with authorization code, S256 PKCE and
-   `openid profile email`. Register exactly `https://www.lumik.dev/api/mcp/oauth/callback`.
+   `openid read:profile read:email` as the allowed scopes in RxAuth (its canonical names).
+   Lumik requests the standard `openid profile email` aliases, which RxAuth normalizes. Register exactly `https://www.lumik.dev/api/mcp/oauth/callback`.
 2. Set server-only `MCP_RXAUTH_CLIENT_ID`, `MCP_RXAUTH_CLIENT_SECRET`,
    `MCP_RESOURCE_URL=https://www.lumik.dev/api/mcp`, and `AUTH_ISSUER`.
    Do not add the broker client to the app's `RXLAB_ALLOWED_CLIENT_IDS`.
