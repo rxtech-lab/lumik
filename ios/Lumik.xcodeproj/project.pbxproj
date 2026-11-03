@@ -29,6 +29,7 @@
 		74B07B4BD57FA81405310208 /* ScanImageProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61814D35B021CF5391A6449C /* ScanImageProcessor.swift */; };
 		909291F9C07FE39E66EC87D3 /* ScanCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DD49BC96EFB33D4C1019669 /* ScanCaptureView.swift */; };
 		934F4A28024AA9D6C0C45CF9 /* DocumentVersionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C90D481B474384E82BCA0BF /* DocumentVersionsView.swift */; };
+		97EA21DE4E651B96CC9DF8EA /* RemoteMCPView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4021A00FFEC04E0897D891B /* RemoteMCPView.swift */; };
 		9C63298B9174512E3EAD0468 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = 1AFDC4544AEFBC056E20CCA6 /* Sparkle */; };
 		9D9F3AE5975CBDEC4C2909E6 /* DocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C320479B738BA85B897A1F9 /* DocumentView.swift */; };
 		A43659372D5268E69159A748 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBE9957F65591D5761B0B49 /* AppStore.swift */; };
@@ -91,6 +92,7 @@
 		922B9F847018F8EA5F1313DA /* FormFillView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormFillView.swift; sourceTree = "<group>"; };
 		B7EF792194FE4FACC027BF5D /* FormModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormModels.swift; sourceTree = "<group>"; };
 		C1DA3F745BF1703667739964 /* AppStore+Paperwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppStore+Paperwork.swift"; sourceTree = "<group>"; };
+		C4021A00FFEC04E0897D891B /* RemoteMCPView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteMCPView.swift; sourceTree = "<group>"; };
 		D62B0CB213D680B505491160 /* GroupEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupEditor.swift; sourceTree = "<group>"; };
 		D8D20CCA5B36F71AE73DD955 /* MoveDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoveDocumentView.swift; sourceTree = "<group>"; };
 		D936E80194B28EC4038C1E08 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -178,6 +180,7 @@
 				D8D20CCA5B36F71AE73DD955 /* MoveDocumentView.swift */,
 				88EEBEC9281C3825E0211E60 /* PDFPreviewTransition.swift */,
 				4214AF5D028423A79F8D9A51 /* PDFProcessing.swift */,
+				C4021A00FFEC04E0897D891B /* RemoteMCPView.swift */,
 				7DD49BC96EFB33D4C1019669 /* ScanCaptureView.swift */,
 				61814D35B021CF5391A6449C /* ScanImageProcessor.swift */,
 				684430CBD1EF749105DAA05C /* ScanLiveView.swift */,
@@ -326,6 +329,7 @@
 				1C39EDD80D13FE3767669A3A /* MoveDocumentView.swift in Sources */,
 				C52A246437E8D8B23115D796 /* PDFPreviewTransition.swift in Sources */,
 				5A70A04D951937443958184D /* PDFProcessing.swift in Sources */,
+				97EA21DE4E651B96CC9DF8EA /* RemoteMCPView.swift in Sources */,
 				909291F9C07FE39E66EC87D3 /* ScanCaptureView.swift in Sources */,
 				74B07B4BD57FA81405310208 /* ScanImageProcessor.swift in Sources */,
 				4D65628A56893A7191FDCFC9 /* ScanLiveView.swift in Sources */,

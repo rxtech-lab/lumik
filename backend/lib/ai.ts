@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import { after } from 'next/server';
+import { db } from './db';
+import { presignPDF, promoteUpload } from './storage';
 import { avoidPrintedText } from './form-geometry';
 import { gateway } from '@ai-sdk/gateway';
 import { generateText, Output, jsonSchema, tool, stepCountIs, ToolChoiceViolationError } from 'ai';
@@ -8,7 +12,8 @@ import type { Forms } from './forms';
 import { runJS } from './js-sandbox';
 import { Repository } from './repository';
 import { runSQL, sqlTables } from './sql-sandbox';
-import { getPDF } from './storage';
+import { getPDF, presignDownload } from './storage';
+import { viewInput } from './contracts';
 import { uiPrompt, validateUISpec } from './ui-catalog';
 function model() {
     // Let the SDK resolve Vercel OIDC authentication or an optional API key.
@@ -151,6 +156,42 @@ async function runAgentJS(repo: Repository, code: string, groupId?: string) {
 export const jsGuide = 'Write the body of a synchronous function and return a JSON-compatible value. Globals: documents, an array of { id, groupId, name, originalName, status, size, createdAt, data, additional }, and groups, an array of { id, parent_id, kind, name, instructions, created_at }. data holds the schema fields and additional holds other facts. No network, modules, or timers. Runs for at most 3 seconds.';
 export function agentTools(repo: Repository) {
     return {
+        create_upload: tool({ description: 'Create a ten-minute S3 PUT URL for a PDF. Upload bytes directly with Content-Type application/pdf, then call complete_upload.', inputSchema: z.object({ groupId: z.string(), name: z.string().min(1).max(255), size: z.number().int().min(5).max(20971520) }), execute: async ({ groupId, name, size }) => {
+            await repo.group(groupId);
+            const id = randomUUID(), stagingKey = `${randomUUID()}.pdf`;
+            const url = await presignPDF(stagingKey, size);
+            if (!url) throw new ApiError(503, 'MCP uploads require S3 storage');
+            await db().execute({ sql: 'INSERT INTO pdf_uploads (id,owner,group_id,name,size,staging_key,expires_at) VALUES(?,?,?,?,?,?,?)', args: [id, repo.owner, groupId, name, size, stagingKey, Date.now() + 86400000] });
+            return { uploadId: id, groupId, url, method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, expiresIn: 600 };
+        } }),
+        complete_upload: tool({ description: 'Complete a direct S3 PDF upload and automatically extract and name it.', inputSchema: z.object({ groupId: z.string(), uploadId: z.string().uuid() }), execute: async ({ groupId, uploadId }) => {
+            await repo.group(groupId);
+            const result = await db().execute({ sql: 'SELECT * FROM pdf_uploads WHERE id=? AND owner=? AND group_id=? AND target_document_id IS NULL AND target_form_id IS NULL', args: [uploadId, repo.owner, groupId] });
+            const upload = result.rows[0];
+            if (!upload) throw new ApiError(404, 'Upload not found');
+            const existing = await db().execute({ sql: 'SELECT id FROM documents WHERE id=? AND owner=?', args: [uploadId, repo.owner] });
+            if (existing.rows.length) return repo.document(uploadId);
+            if (Number(upload.expires_at) < Date.now()) throw new ApiError(410, 'Upload expired');
+            await promoteUpload(String(upload.staging_key), `${uploadId}.pdf`, Number(upload.size));
+            await repo.addDocument(groupId, uploadId, String(upload.name), Number(upload.size));
+            await db().execute({ sql: 'INSERT OR IGNORE INTO gc VALUES(?)', args: [upload.staging_key] });
+            await repo.claimDocument(uploadId);
+            after(() => processUploadedDocument(repo, uploadId));
+            return repo.document(uploadId);
+        } }),
+        get_pdf: tool({ description: 'Get a private PDF download URL valid for one hour.', inputSchema: z.object({ documentId: z.string() }), execute: async ({ documentId }) => {
+            const document = await repo.document(documentId);
+            const url = await presignDownload(document.storageKey);
+            if (!url) throw new ApiError(503, 'Presigned downloads require S3 storage');
+            return { documentId, name: document.name, url, expiresIn: 3600 };
+        } }),
+        get_summary: tool({ description: 'Summarize a PDF from its full contents.', inputSchema: z.object({ documentId: z.string() }), execute: ({ documentId }) => askPDF(repo, documentId, 'Summarize this document concisely, including its purpose, parties, dates and key amounts. Do not invent missing details.') }),
+        get_statistics: tool({ description: 'Evaluate a saved statistics view against current owner-scoped data.', inputSchema: z.object({ groupId: z.string(), viewId: z.string() }), execute: async ({ groupId, viewId }) => {
+            const view = await repo.view(groupId, viewId);
+            return repo.viewState(groupId, view);
+        } }),
+        write_statistics: tool({ description: 'Propose creating or updating a statistics view for approval in Lumik.', inputSchema: z.object({ groupId: z.string(), viewId: z.string().optional(), view: viewInput.extend({ kind: z.literal('statistic') }) }), execute: ({ groupId, viewId, view }) => repo.propose(viewId ? { action: 'update_view', groupId, viewId, view } : { action: 'create_view', groupId, view }) }),
+        move_document: tool({ description: 'Propose moving a PDF to a group for approval in Lumik.', inputSchema: z.object({ documentId: z.string(), groupId: z.string() }), execute: ({ documentId, groupId }) => repo.propose({ action: 'organize_documents', newGroups: [], moves: [{ documentId, target: groupId }] }) }),
         list_groups: tool({ description: 'List the signed-in user’s groups. parentId is the group a subgroup sits inside; kind "inbox" is the Inbox of unfiled scans.', inputSchema: z.object({}), execute: () => repo.groups() }),
         list_documents: tool({ description: 'List documents and extracted fields in a group.', inputSchema: z.object({ groupId: z.string() }), execute: ({ groupId }) => repo.documents(groupId) }),
         analyze_document: tool({ description: 'Read a PDF with AI and propose its extracted fields and content-based name for user review.', inputSchema: z.object({ documentId: z.string() }), execute: ({ documentId }) => proposeDocumentAnalysis(repo, documentId) }),
