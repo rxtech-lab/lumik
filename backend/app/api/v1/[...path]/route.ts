@@ -13,8 +13,9 @@ import { getPDF, putPDF, removePDF, presignPDF, promoteUpload } from '@/lib/stor
 import { chat, chatContext, draftSchema, processDocument, processUploadedDocument, suggestDocumentName, suggestDocumentGroup } from '@/lib/ai';
 import { errorResponse, jsonBody } from '@/lib/http';
 import { db, expirePDFUploads } from '@/lib/db';
+import { paperworkRoute } from '@/lib/paperwork-routes';
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+export const maxDuration = 360;
 async function cleanup() { try {
     await purgeAccounts();
     await purgeExpiredGroups();
@@ -36,6 +37,9 @@ async function route(req: Request, { params }: {
         const repo = new Repository(await principal(req));
         const p = (await params).path;
         const method = req.method;
+        const paperwork = await paperworkRoute(repo, req, p);
+        if (paperwork)
+            return paperwork;
         if (p.join('/') === 'account' && ['GET','POST','DELETE'].includes(method)) return Response.json(await account(repo.owner,method));
         if (p.length===2 && p[0]==='legal' && ['terms','privacy'].includes(p[1]) && method==='GET') return Response.json({markdown:await readFile(join(process.cwd(),'legal',p[1]+'.md'),'utf8')});
         if (p[0] === 'groups' && p.length === 1) {
@@ -43,6 +47,12 @@ async function route(req: Request, { params }: {
                 return Response.json(await repo.groups());
             if (method === 'POST')
                 return Response.json(await repo.createGroup(await jsonBody(req)), { status: 201 });
+        }
+        if (p[0] === 'groups' && p.length === 3 && p[2] === 'move' && method === 'POST') {
+            const body = await jsonBody(req);
+            if (!body || !('parentId' in body) || (body.parentId !== null && (typeof body.parentId !== 'string' || !body.parentId.trim())))
+                throw new ApiError(422, 'parentId must be a group ID or null');
+            return Response.json(await repo.moveGroup(p[1], body.parentId));
         }
         if (p[0] === 'groups' && p.length === 2) {
             if (method === 'GET')
@@ -69,14 +79,14 @@ async function route(req: Request, { params }: {
                 return Response.json(await repo.restoreGroup(p[1]));
         }
         if (p[0] === 'groups' && p[2] === 'uploads' && method === 'POST') {
-            await repo.group(p[1]);
             if (p.length === 3) {
+                await repo.group(p[1]);
                 const input = z.object({ name: z.string().min(1).max(255), size: z.number().int().min(5) }).parse(await jsonBody(req));
                 const id = randomUUID();
                 const stagingKey = `${randomUUID()}.pdf`;
                 const url = await presignPDF(stagingKey, input.size);
                 if (!url) return Response.json({ mode: 'local' });
-                await db().execute({ sql: 'INSERT INTO pdf_uploads VALUES(?,?,?,?,?,?,?)', args: [id, repo.owner, p[1], input.name, input.size, stagingKey, Date.now() + 86_400_000] });
+                await db().execute({ sql: 'INSERT INTO pdf_uploads (id,owner,group_id,name,size,staging_key,expires_at) VALUES(?,?,?,?,?,?,?)', args: [id, repo.owner, p[1], input.name, input.size, stagingKey, Date.now() + 86_400_000] });
                 return Response.json({ mode: 'direct', id, url });
             }
             if (p.length === 5 && p[4] === 'complete') {
@@ -107,7 +117,6 @@ async function route(req: Request, { params }: {
             if (method === 'GET')
                 return Response.json((await repo.documents(p[1])).map(({ storageKey, ...d }) => d));
             if (method === 'POST') {
-                await repo.group(p[1]);
                 const form = await req.formData();
                 const localValue = form.get('localResult');
                 const group = await repo.group(p[1]);
@@ -158,6 +167,10 @@ async function route(req: Request, { params }: {
             }
             if (p[4] === 'state' && p.length === 5 && method === 'GET')
                 return Response.json({ state: await repo.viewState(p[1], await repo.view(p[1], p[3])) });
+            if (p[4] === 'state' && p.length === 5 && method === 'POST') {
+                const b = z.object({ values: z.record(z.string(), z.union([z.string().max(1000), z.number(), z.boolean(), z.null()])) }).parse(await jsonBody(req));
+                return Response.json({ state: await repo.viewState(p[1], await repo.view(p[1], p[3]), b.values) });
+            }
             if (p[4] === 'run' && p.length === 5 && method === 'POST') {
                 const b = z.object({ values: z.record(z.string(), z.union([z.string().max(1000), z.number(), z.boolean(), z.null()])) }).parse(await jsonBody(req));
                 return Response.json(await repo.runFilter(p[1], p[3], b.values));

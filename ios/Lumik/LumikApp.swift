@@ -67,6 +67,10 @@ struct RootView: View {
         #else
           TabView(selection: $tab) {
             Tab("Library", systemImage: "square.stack.3d.up", value: 0) { LibraryView() }
+            Tab("Signing", systemImage: "signature", value: 3) {
+              NavigationStack { SigningRequestsView() }
+            }
+            .badge(store.signingRequests.filter(\.isPending).count)
             Tab("Account", systemImage: "person.crop.circle", value: 2) { AccountView() }
             // Wider screens keep Lumik in the right-hand column instead.
             if sizeClass == .compact {
@@ -97,6 +101,7 @@ struct RootView: View {
   }
 }
 struct ActionFeedback: ViewModifier {
+  @State private var activityHeight: CGFloat = 0
   @Environment(AppStore.self) private var store
   func body(content: Content) -> some View {
     @Bindable var store = store
@@ -106,8 +111,32 @@ struct ActionFeedback: ViewModifier {
           Color.black.opacity(0.12).ignoresSafeArea()
           VStack(spacing: 16) {
             ProgressView()
-            Text(busy).font(.callout).multilineTextAlignment(.center)
-          }.padding(28).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+            Text(busy).font(.callout).multilineTextAlignment(.center).lineLimit(3)
+            if !store.actionActivity.isEmpty {
+              ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(store.actionActivity.enumerated().suffix(5)), id: \.offset) { index, activity in
+                  Label(activity, systemImage: index == store.actionActivity.count - 1 ? "arrow.triangle.2.circlepath" : "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                  .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { activityHeight = $0 }
+              }.frame(maxWidth: 340)
+                .frame(height: min(activityHeight, 200), alignment: .topLeading)
+                .defaultScrollAnchor(.bottom)
+              if let started = store.actionStartedAt {
+                HStack(spacing: 4) {
+                  Text("Elapsed")
+                  Text(started, style: .timer).monospacedDigit()
+                }.font(.caption).foregroundStyle(.secondary)
+              }
+            }
+          }.padding(28).frame(maxWidth: 396, maxHeight: 400)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+            .padding(16)
         }.allowsHitTesting(true)
       }
     }.overlay(alignment: .top) {
@@ -127,6 +156,15 @@ struct ActionFeedback: ViewModifier {
 }
 extension View {
   func actionFeedback() -> some View { modifier(ActionFeedback()) }
+  /// Room for a form beside its PDF. On macOS the content must fill the sheet, or the title bar collapses.
+  func wideSheet() -> some View {
+    #if os(macOS)
+      self.frame(minWidth: 980, idealWidth: 1120, minHeight: 680, idealHeight: 780).frame(
+        maxWidth: .infinity, maxHeight: .infinity)
+    #else
+      self.presentationSizing(.page).presentationDetents([.large]).presentationDragIndicator(.visible)
+    #endif
+  }
   func fullSheet() -> some View {
     #if os(macOS)
       self.frame(minWidth: 560, idealWidth: 640, minHeight: 560, idealHeight: 600).frame(

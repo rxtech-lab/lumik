@@ -7,6 +7,7 @@ struct StatisticDetailView: View {
   @Environment(\.dismiss) private var dismiss
   @State private var state: JSONRenderState?
   @State private var problem: String?
+  @State private var refreshing = false
   @State private var deleting = false
   var body: some View {
     Group {
@@ -31,6 +32,15 @@ struct StatisticDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
       #endif
       .task(id: view) { await load() }
+      .task(id: inputValues) {
+        guard state != nil else { return }
+        do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+        await load()
+      }
+      .overlay { if refreshing { ProgressView("Updating…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) } }
+      .alert("Couldn’t update this view", isPresented: Binding(get: { problem != nil && state != nil }, set: { if !$0 { problem = nil } })) {
+        Button("OK", role: .cancel) { problem = nil }
+      } message: { Text(problem ?? "") }
       .toolbar {
         ToolbarItem(placement: .primaryAction) { AgentToolbarButton() }
         ToolbarItem(placement: .primaryAction) {
@@ -58,10 +68,21 @@ struct StatisticDetailView: View {
         }.fullSheet().actionFeedback()
       }
   }
+  private var inputValues: [String: JSONValue] {
+    (state?.root.object ?? [:]).filter { key, value in
+      guard key != "queries" && key != "processed" else { return false }
+      switch value { case .string, .number, .bool, .null: return true; default: return false }
+    }
+  }
   private func load() async {
     problem = nil
+    let values = inputValues
+    refreshing = state != nil
+    defer { refreshing = false }
     do {
-      state = JSONRenderState(try await store.viewState(view))
+      let result = try await store.viewState(view, values: values)
+      guard !Task.isCancelled, inputValues == values else { return }
+      state = JSONRenderState(result)
     } catch {
       if !isSilentCancellation(error) { problem = error.localizedDescription }
     }

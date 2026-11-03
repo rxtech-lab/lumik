@@ -228,3 +228,14 @@ describe('saved statistics post-processing', () => {
         expect(await alice.views(groupId)).toEqual([]);
     });
 });
+
+describe('statistics input parameters', () => {
+    it('uses the default year and recomputes each selected year without changing the saved default', async () => {
+        const saved = await alice.createView(groupId, { ...statistic, spec: { ...spec, state: { year: '2026' } }, queries: { total: "SELECT count(*) AS count, sum(json_extract(data, '$.amount')) AS sum FROM documents WHERE substr(json_extract(data, '$.paid_on'), 1, 4) = :year" } });
+        expect(await alice.viewState(groupId, saved)).toMatchObject({ year: '2026', queries: { total: [{ count: 3, sum: 170.5 }] } });
+        expect(await alice.viewState(groupId, saved, { year: '2025' })).toMatchObject({ year: '2025', queries: { total: [{ count: 1, sum: 999 }] } });
+        expect(await alice.viewState(groupId, saved, { year: '2024' })).toMatchObject({ queries: { total: [{ count: 0, sum: null }] } });
+        expect((await alice.view(groupId, saved.id)).spec.state).toEqual({ year: '2026' });
+        await expect(bob.viewState(groupId, saved, { year: '2025' })).rejects.toMatchObject({ status: 404 });
+    });
+});

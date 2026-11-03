@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { Client, Row } from '@libsql/client';
-import { db } from './db';
+import { db, documentChildrenCleanup, emptySigningRequests } from './db';
 import { z } from 'zod';
 import { ApiError, groupInput, mutationInput, newGroupInput, safeName, validateData, viewInput, type Additional, type DeletedGroup, type Document, type Group, type GroupView, type Schema } from './contracts';
 import { runSQL, type SandboxData, type SQLParam, type SQLResult } from './sql-sandbox';
 import { runJS } from './js-sandbox';
 import { validateUISpec } from './ui-catalog';
 function group(row: Row): Group { return { id: String(row.id), parentId: row.parent_id ? String(row.parent_id) : null, kind: row.kind === 'inbox' ? 'inbox' : 'group', name: String(row.name), instructions: String(row.instructions), namingTemplate: String(row.naming_template), extractAdditional: Boolean(row.extract_additional), schema: JSON.parse(String(row.schema_json)), createdAt: String(row.created_at), documentCount: Number(row.document_count ?? 0) }; }
-function document(row: Row): Document { return { id: String(row.id), groupId: String(row.group_id), name: String(row.name), originalName: String(row.original_name), storageKey: String(row.storage_key), size: Number(row.size), status: String(row.status), data: row.data_json ? JSON.parse(String(row.data_json)) : null, additional: row.additional_json ? JSON.parse(String(row.additional_json)) : null, error: row.error ? String(row.error) : null, createdAt: String(row.created_at) }; }
+export function document(row: Row): Document { return { id: String(row.id), groupId: String(row.group_id), name: String(row.name), originalName: String(row.original_name), storageKey: String(row.storage_key), size: Number(row.size), status: String(row.status), data: row.data_json ? JSON.parse(String(row.data_json)) : null, additional: row.additional_json ? JSON.parse(String(row.additional_json)) : null, error: row.error ? String(row.error) : null, createdAt: String(row.created_at) }; }
 function view(row: Row): GroupView { return { id: String(row.id), groupId: String(row.group_id), kind: String(row.kind) as GroupView['kind'], title: String(row.title), spec: JSON.parse(String(row.spec_json)), queries: JSON.parse(String(row.queries_json)), createdAt: String(row.created_at) }; }
 /** How long a deleted group waits in the Recycle Bin before it is permanently deleted. */
 export const recycleBinDays = 30;
@@ -18,11 +18,16 @@ function deletedGroup(row: Row): DeletedGroup { const deletedAt = String(row.del
 export async function purgeExpiredGroups(client: Client = db()) {
     const expired = 'SELECT id FROM groups WHERE deleted_at IS NOT NULL AND deleted_at<=?';
     const args = [purgeCutoff()];
+    // This runs after most deletes and rarely has work, so don't spend writes when it has none.
+    if (!(await client.execute({ sql: `${expired} LIMIT 1`, args })).rows.length)
+        return;
     await client.batch([
         { sql: `INSERT OR IGNORE INTO gc SELECT storage_key FROM documents WHERE group_id IN (${expired})`, args },
+        ...documentChildrenCleanup(`SELECT id FROM documents WHERE group_id IN (${expired})`, args),
         { sql: `DELETE FROM documents WHERE group_id IN (${expired})`, args },
         { sql: `DELETE FROM group_views WHERE group_id IN (${expired})`, args },
         { sql: 'DELETE FROM groups WHERE deleted_at IS NOT NULL AND deleted_at<=?', args },
+        { sql: 'DELETE FROM signing_requests WHERE NOT EXISTS (SELECT 1 FROM filled_forms f WHERE f.signing_request_id=signing_requests.id)', args: [] },
     ], 'write');
 }
 /** Fields the inbox reads from each scan, so Lumik can file it without opening the PDF again. */
@@ -42,8 +47,8 @@ const sameFields = (a: Schema, b: Schema) => JSON.stringify(a) === JSON.stringif
 export class Repository {
     constructor(readonly owner: string, private client: Client = db()) { }
     async groups() { const r = await this.client.execute({ sql: 'SELECT g.*, (SELECT count(*) FROM documents d WHERE d.group_id=g.id AND d.owner=g.owner) document_count FROM groups g WHERE owner=? AND deleted_at IS NULL ORDER BY created_at DESC', args: [this.owner] }); return r.rows.map(group); }
-    async group(id: string) { const g = (await this.groups()).find(x => x.id === id); if (!g)
-        throw new ApiError(404, 'Group not found'); return g; }
+    async group(id: string) { const r = await this.client.execute({ sql: 'SELECT g.*, (SELECT count(*) FROM documents d WHERE d.group_id=g.id AND d.owner=g.owner) document_count FROM groups g WHERE g.id=? AND g.owner=? AND g.deleted_at IS NULL', args: [id, this.owner] }); if (!r.rows[0])
+        throw new ApiError(404, 'Group not found'); return group(r.rows[0]); }
     /** Finds this account's inbox, creating it the first time it is needed. */
     async inbox() {
         await this.client.execute({ sql: "INSERT OR IGNORE INTO groups (id,owner,name,instructions,naming_template,schema_json,created_at,kind) VALUES(?,?,?,?,?,?,?,'inbox')", args: [randomUUID(), this.owner, 'Inbox', inboxInstructions, '{date}-{title}', JSON.stringify(inboxSchema), new Date().toISOString()] });
@@ -57,12 +62,30 @@ export class Repository {
     }
     async createGroup(input: unknown) { const g = newGroupInput.parse(input); if (g.parentId)
         await this.requireParent(g.parentId); const id = randomUUID(); await this.client.execute({ sql: 'INSERT INTO groups (id,owner,parent_id,name,instructions,naming_template,schema_json,created_at,extract_additional) VALUES(?,?,?,?,?,?,?,?,?)', args: [id, this.owner, g.parentId ?? null, g.name, g.instructions, g.namingTemplate, JSON.stringify(g.schema), new Date().toISOString(), g.extractAdditional ? 1 : 0] }); return this.group(id); }
+    async moveGroup(id: string, parentId: string | null) {
+        const moving = await this.group(id);
+        if (moving.kind === 'inbox') throw new ApiError(422, 'The Inbox cannot be moved');
+        let ancestor = parentId;
+        const visited = new Set<string>();
+        while (ancestor) {
+            if (ancestor === id || visited.has(ancestor)) throw new ApiError(422, 'A group cannot be moved into itself or its descendants');
+            visited.add(ancestor);
+            ancestor = (await this.requireParent(ancestor)).parentId;
+        }
+        await this.client.execute({ sql: 'UPDATE groups SET parent_id=? WHERE id=? AND owner=?', args: [parentId, id, this.owner] });
+        return this.group(id);
+    }
     async updateGroup(id: string, input: unknown) { const g = groupInput.parse(input); if ((await this.group(id)).kind === 'inbox')
         throw new ApiError(422, 'The Inbox cannot be edited'); await this.client.execute({ sql: 'UPDATE groups SET name=?,instructions=?,naming_template=?,schema_json=?,extract_additional=? WHERE id=? AND owner=?', args: [g.name, g.instructions, g.namingTemplate, JSON.stringify(g.schema), g.extractAdditional ? 1 : 0, id, this.owner] }); return this.group(id); }
-    async documents(groupId: string) { await this.group(groupId); const r = await this.client.execute({ sql: 'SELECT * FROM documents WHERE group_id=? AND owner=? ORDER BY created_at DESC', args: [groupId, this.owner] }); return r.rows.map(document); }
+    /** One statement: a missing group returns no row, and a group without documents one row of NULLs. */
+    async documents(groupId: string) { const r = await this.client.execute({ sql: 'SELECT d.* FROM groups g LEFT JOIN documents d ON d.group_id=g.id AND d.owner=g.owner WHERE g.id=? AND g.owner=? AND g.deleted_at IS NULL ORDER BY d.created_at DESC', args: [groupId, this.owner] }); if (!r.rows.length)
+        throw new ApiError(404, 'Group not found'); return r.rows.filter(row => row.id !== null).map(document); }
     async document(id: string) { const r = await this.client.execute({ sql: 'SELECT d.* FROM documents d JOIN groups g ON g.id=d.group_id WHERE d.id=? AND d.owner=? AND g.deleted_at IS NULL', args: [id, this.owner] }); if (!r.rows[0])
         throw new ApiError(404, 'Document not found'); return document(r.rows[0]); }
-    async addDocument(groupId: string, id: string, name: string, size: number) { await this.group(groupId); await this.client.execute({ sql: 'INSERT INTO documents (id,group_id,owner,name,original_name,storage_key,size,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)', args: [id, groupId, this.owner, safeName(name), safeName(name), `${id}.pdf`, size, 'uploaded', new Date().toISOString()] }); return this.document(id); }
+    async addDocument(groupId: string, id: string, name: string, size: number) { await this.group(groupId); const now = new Date().toISOString(); await this.client.batch([
+        { sql: 'INSERT INTO documents (id,group_id,owner,name,original_name,storage_key,size,status,created_at,current_version_id) VALUES(?,?,?,?,?,?,?,?,?,?)', args: [id, groupId, this.owner, safeName(name), safeName(name), `${id}.pdf`, size, 'uploaded', now, id] },
+        { sql: 'INSERT INTO document_versions (id,document_id,owner,number,name,storage_key,size,created_at) VALUES(?,?,?,1,?,?,?,?)', args: [id, id, this.owner, safeName(name), `${id}.pdf`, size, now] },
+    ], 'write'); return this.document(id); }
     async claimDocument(id: string) {
         await this.document(id);
         const r = await this.client.execute({ sql: "UPDATE documents SET status='processing',error=NULL,processing_started_at=? WHERE id=? AND owner=? AND (status!='processing' OR processing_started_at<?)", args: [new Date().toISOString(), id, this.owner, new Date(Date.now() - 180000).toISOString()] });
@@ -78,7 +101,12 @@ export class Repository {
         throw new ApiError(409, 'Wait for processing to finish'); await this.client.execute({ sql: 'UPDATE documents SET name=? WHERE id=? AND owner=?', args: [safeName(name.replace(/\.pdf$/i, '')) + '.pdf', id, this.owner] }); return this.document(id); }
     async deleteDocument(id: string) {
         const d = await this.document(id);
-        await this.client.batch([{ sql: 'INSERT OR IGNORE INTO gc VALUES(?)', args: [d.storageKey] }, { sql: 'DELETE FROM documents WHERE id=? AND owner=?', args: [id, this.owner] }], 'write');
+        await this.client.batch([
+            { sql: 'INSERT OR IGNORE INTO gc VALUES(?)', args: [d.storageKey] },
+            ...documentChildrenCleanup('SELECT id FROM documents WHERE id=? AND owner=?', [id, this.owner]),
+            { sql: 'DELETE FROM documents WHERE id=? AND owner=?', args: [id, this.owner] },
+            emptySigningRequests(this.owner),
+        ], 'write');
     }
     /** Files a document in another group. Returns whether its PDF must be read for the new group's fields. */
     private async relocate(d: Document, from: Group, targetId: string, targetSchema: Schema) {
@@ -210,9 +238,11 @@ export class Repository {
         const args = [...ids, this.owner];
         await this.client.batch([
             { sql: `INSERT OR IGNORE INTO gc SELECT storage_key FROM documents WHERE group_id IN (${marks}) AND owner=?`, args },
+            ...documentChildrenCleanup(`SELECT id FROM documents WHERE group_id IN (${marks}) AND owner=?`, args),
             { sql: `DELETE FROM documents WHERE group_id IN (${marks}) AND owner=?`, args },
             { sql: `DELETE FROM group_views WHERE group_id IN (${marks}) AND owner=?`, args },
             { sql: `DELETE FROM groups WHERE id IN (${marks}) AND owner=?`, args },
+            emptySigningRequests(this.owner),
         ], 'write');
     }
     /** The only rows agent-written SQL and JavaScript can see: this owner's, optionally one group's. */
@@ -227,15 +257,15 @@ export class Repository {
         };
     }
     async views(groupId: string) { await this.group(groupId); const r = await this.client.execute({ sql: 'SELECT * FROM group_views WHERE group_id=? AND owner=? ORDER BY created_at', args: [groupId, this.owner] }); return r.rows.map(view); }
-    async view(groupId: string, id: string) { const v = (await this.views(groupId)).find(x => x.id === id); if (!v)
-        throw new ApiError(404, 'View not found'); return v; }
+    async view(groupId: string, id: string) { const r = await this.client.execute({ sql: 'SELECT v.* FROM group_views v JOIN groups g ON g.id=v.group_id WHERE v.id=? AND v.group_id=? AND v.owner=? AND g.deleted_at IS NULL', args: [id, groupId, this.owner] }); if (!r.rows[0])
+        throw new ApiError(404, 'View not found'); return view(r.rows[0]); }
     /** Checks a view against the group's real data, so a broken one never reaches review. */
     async checkView(groupId: string, input: unknown) {
         const v = viewInput.parse(input);
         validateUISpec(v.spec);
         if (v.kind === 'filter' && !v.queries.documents)
             throw new ApiError(422, 'A filter needs a query named "documents" that selects the id column');
-        const results = await this.runQueries(groupId, v.queries);
+        const results = await this.runQueries(groupId, v.queries, this.viewParams(v.spec));
         if (v.kind === 'filter' && !results.documents.columns.includes('id'))
             throw new ApiError(422, 'A filter\'s "documents" query must select the id column');
         await this.statisticsState(v.spec, results);
@@ -246,9 +276,15 @@ export class Repository {
         return runSQL(data, Object.fromEntries(Object.entries(queries).map(([name, sql]) => [name, { sql, params }])));
     }
     /** The spec's starting state plus each query's rows at /queries/<name>. */
-    async viewState(groupId: string, input: { spec: Record<string, unknown>; queries: Record<string, string> }) {
-        const results = await this.runQueries(groupId, input.queries);
-        return this.statisticsState(input.spec, results);
+    private viewParams(spec: Record<string, unknown>): Record<string, SQLParam> {
+        return Object.fromEntries(Object.entries((spec.state ?? {}) as Record<string, unknown>)
+            .filter(([key, value]) => !['queries', 'processed'].includes(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value)))
+            .map(([key, value]) => [key, value === '' ? null : typeof value === 'boolean' ? Number(value) : value as SQLParam]));
+    }
+    async viewState(groupId: string, input: { spec: Record<string, unknown>; queries: Record<string, string> }, values: Record<string, string | number | boolean | null> = {}) {
+        const spec = { ...input.spec, state: { ...(input.spec.state as object | undefined), ...values } };
+        const results = await this.runQueries(groupId, input.queries, this.viewParams(spec));
+        return this.statisticsState(spec, results);
     }
     private async statisticsState(spec: Record<string, unknown>, results: Record<string, SQLResult>) {
         const queries = Object.fromEntries(Object.entries(results).map(([name, result]) => [name, result.rows]));

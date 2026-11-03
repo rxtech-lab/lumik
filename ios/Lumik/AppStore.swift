@@ -19,7 +19,15 @@ import SwiftUI
   }
   var groups: [ScanGroup] = []
   var deletedGroups: [DeletedGroup] = []
-  var documents: [ScanDocument] = []
+  var documents: [ScanDocument] = [] {
+    // Polling finds out when a PDF has been read, and the open page's version actions depend on it.
+    didSet {
+      guard let id = workspace?.document.id, let updated = documents.first(where: { $0.id == id }),
+        updated != workspace?.document
+      else { return }
+      workspace?.document = updated
+    }
+  }
   var messages: [ChatMessage] = []
   /// Chosen here rather than by the server, so a retry after a failed send stays in the conversation.
   private var conversationID: String?
@@ -28,6 +36,8 @@ import SwiftUI
   var groupSuggestions: [PDFGroupSuggestion] = []
   private var suggestionSession = UUID()
   var busy: String?
+  var actionActivity: [String] = []
+  var actionStartedAt: Date?
   var notice: String?
   var error: String?
   var loading = false
@@ -35,6 +45,13 @@ import SwiftUI
   var selectedGroupID: String?
   var views: [GroupView] = []
   var documentFilter: DocumentFilter?
+  /// The open PDF's versions, form, and filled copies, from one read.
+  var workspace: DocumentWorkspace?
+  /// Filled and signed forms in the open group.
+  var groupForms: [FilledForm] = []
+  var signingRequests: [SigningRequest] = []
+  /// The last PDF downloaded. Versions and signed PDFs never change, so a path always means the same bytes.
+  var cachedPDF: (path: String, data: Data)?
   var openDocument: ScanDocument? {
     didSet { if openDocument?.id != oldValue?.id { dismissedContextDocumentID = nil } }
   }
@@ -43,6 +60,8 @@ import SwiftUI
   var dismissedContextGroupID: String?
   var dismissedContextDocumentID: String?
   var loadingDocumentID: String?
+  var suggestedFormDocumentID: String?
+  var requestedFormDocumentID: String?
   var openDocumentPages: Int?
   var sending = false
   var composerDraft = ""
@@ -119,7 +138,7 @@ import SwiftUI
   }
   private var refreshTask: Task<Void, Error>?
   private var documentLoadID = UUID()
-  private var documentPoll: Task<Void, Never>?
+  var documentPoll: Task<Void, Never>?
   init() {
     let info = Bundle.main.infoDictionary ?? [:]
     let clientID = info["RxLabClientID"] as? String ?? "unconfigured"
@@ -137,7 +156,7 @@ import SwiftUI
   }
   func request(
     _ path: String, method: String = "GET", body: Data? = nil,
-    contentType: String = "application/json"
+    contentType: String = "application/json", progress: ((String) -> Void)? = nil
   ) async throws -> Data {
     #if DEBUG
       if isPreview && path.hasSuffix("/pdf") { return Self.previewPDF() }
@@ -162,15 +181,35 @@ import SwiftUI
     var req = URLRequest(url: baseURL.appendingPathComponent("api/v1/" + path))
     req.httpMethod = method
     req.httpBody = body
-    req.timeoutInterval = 125
+    req.timeoutInterval = path.hasSuffix("/form-template") && method == "POST" ? 365 : 125
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue(contentType, forHTTPHeaderField: "Content-Type")
+    if let progress {
+      req.setValue("application/x-ndjson", forHTTPHeaderField: "Accept")
+      let (bytes, response) = try await URLSession.shared.bytes(for: req)
+      guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        throw APIError(message: "Could not start form generation.")
+      }
+      for try await line in bytes.lines {
+        try Task.checkCancellation()
+        guard let data = line.data(using: .utf8),
+          let event = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+        switch event["type"] as? String {
+        case "progress": if let message = event["message"] as? String { progress(message) }
+        case "error": throw APIError(message: event["message"] as? String ?? "Form generation failed.")
+        case "result":
+          if let result = event["result"] { return try JSONSerialization.data(withJSONObject: result) }
+        default: break
+        }
+      }
+      throw APIError(message: "Form generation ended before completion. Please try again.")
+    }
     let (data, response) = try await URLSession.shared.data(for: req)
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       let message = (try? JSONValue.parse(String(decoding: data, as: UTF8.self)))?.object["error"]?
         .string
       let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-      throw APIError(message: message ?? (status == 413 ? "The upload exceeds the server size limit." : "The server could not complete this request (HTTP \(status))."))
+      throw APIError(message: message ?? (status == 413 ? "The upload exceeds the server size limit." : "The server could not complete this request (HTTP \(status))."), status: status)
     }
     return data
   }
@@ -317,8 +356,42 @@ import SwiftUI
       }
     }
   }
+  /// Everything the group page shows comes from this one request.
+  func loadGroupPage(_ id: String) async {
+    if isPreview {
+      await loadDocuments(id)
+      await loadViews(id)
+      return
+    }
+    if selectedGroupID != id {
+      documentFilter = nil
+      dismissedContextGroupID = nil
+      documents = []
+      views = []
+      groupForms = []
+    }
+    selectedGroupID = id
+    let loadID = UUID()
+    documentLoadID = loadID
+    documentPoll?.cancel()
+    loading = documents.isEmpty
+    defer { if documentLoadID == loadID { loading = false } }
+    do {
+      let result = try await fetch(GroupOverview.self, "groups/\(id)/overview")
+      if selectedGroupID == id && documentLoadID == loadID && !Task.isCancelled {
+        documents = result.documents
+        views = result.views
+        groupForms = result.forms
+        pollProcessingDocuments(id)
+      }
+    } catch {
+      if documentLoadID == loadID && selectedGroupID == id && !isSilentCancellation(error) {
+        self.error = error.localizedDescription
+      }
+    }
+  }
   /// Uploads are processed on the server, so watch until their new names and fields arrive.
-  private func pollProcessingDocuments(_ id: String) {
+  func pollProcessingDocuments(_ id: String) {
     guard documents.contains(where: { $0.status == "processing" }) else { return }
     documentPoll = Task { [weak self] in
       // Slightly outlasts the server's three-minute processing lease.
@@ -362,7 +435,9 @@ import SwiftUI
     guard busy == nil else { return false }
     Haptics.tap()
     busy = label
-    defer { busy = nil }
+    actionActivity = []
+    actionStartedAt = Date()
+    defer { busy = nil; actionActivity = []; actionStartedAt = nil }
     do {
       try await action()
       showNotice(success)
@@ -394,9 +469,11 @@ import SwiftUI
     let model = PDFProcessingModel.saved
     var localResult: Data? = nil
     if model == .apple {
-      let availableGroups = try await fetch([ScanGroup].self, "groups")
-      guard let group = availableGroups.first(where: { $0.id == groupID }) else { throw APIError(message: "Group not found. Refresh and retry.") }
-      let previous = try await fetch([ScanDocument].self, "groups/\(groupID)/documents")
+      // Both are usually on screen already, so only fetch what isn't.
+      let known = groups.first { $0.id == groupID }
+      let availableGroups = known == nil ? try await fetch([ScanGroup].self, "groups") : []
+      guard let group = known ?? availableGroups.first(where: { $0.id == groupID }) else { throw APIError(message: "Group not found. Refresh and retry.") }
+      let previous = selectedGroupID == groupID ? documents : try await fetch([ScanDocument].self, "groups/\(groupID)/documents")
       let names = previous.filter { $0.status == "ready" && $0.name != $0.originalName }.prefix(20).map(\.name)
       let result = try await LocalPDFProcessor.extract(data, group: group, previousNames: names, progress: report)
       localResult = try JSONEncoder().encode(result)
@@ -556,9 +633,9 @@ import SwiftUI
       if selectedGroupID == groupID && !Task.isCancelled { views = result }
     } catch { if !isSilentCancellation(error) { self.error = error.localizedDescription } }
   }
-  func viewState(_ view: GroupView) async throws -> JSONValue {
+  func viewState(_ view: GroupView, values: [String: JSONValue] = [:]) async throws -> JSONValue {
     if isPreview { return .object(["queries": .object(["total": .array([.object(["sum": .number(42)])])]), "vendor": .null]) }
-    return try await fetch(ViewStateReply.self, "groups/\(view.groupId)/views/\(view.id)/state").state
+    return try await fetch(ViewStateReply.self, "groups/\(view.groupId)/views/\(view.id)/state", method: "POST", body: JSONEncoder().encode(["values": values])).state
   }
   func previewState(groupID: String, view: JSONValue) async throws -> JSONValue {
     try await fetch(
@@ -681,6 +758,10 @@ import SwiftUI
     selectedGroupID = nil
     views = []
     documentFilter = nil
+    workspace = nil
+    groupForms = []
+    signingRequests = []
+    cachedPDF = nil
     openDocument = nil
     composerDraft = ""
     pendingImport = nil
@@ -705,7 +786,7 @@ import SwiftUI
 }
 
 /// URLSession reports bytes actually sent to the presigned storage endpoint.
-private final class PDFUploadProgress: NSObject, URLSessionTaskDelegate, Sendable {
+final class PDFUploadProgress: NSObject, URLSessionTaskDelegate, Sendable {
   let total: Int64
   let report: @MainActor @Sendable (String) -> Void
   init(total: Int64, report: @escaping @MainActor @Sendable (String) -> Void) {

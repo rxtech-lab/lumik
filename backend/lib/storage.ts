@@ -4,10 +4,11 @@ import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ApiError } from './contracts';
 function local() { return process.env.NODE_ENV !== 'production' ? process.env.LOCAL_STORAGE_DIR : undefined; }
+let client: S3Client | undefined;
 function s3() {
     if (!process.env.S3_BUCKET)
         throw new ApiError(503, 'Private PDF storage is not configured');
-    return new S3Client({ requestChecksumCalculation: 'WHEN_REQUIRED', region: process.env.S3_REGION ?? 'auto', endpoint: process.env.S3_ENDPOINT || undefined, forcePathStyle: !!process.env.S3_ENDPOINT });
+    return client ??= new S3Client({ requestChecksumCalculation: 'WHEN_REQUIRED', region: process.env.S3_REGION ?? 'auto', endpoint: process.env.S3_ENDPOINT || undefined, forcePathStyle: !!process.env.S3_ENDPOINT });
 }
 function path(key: string) { if (!/^[a-f0-9-]+\.pdf$/.test(key))
     throw new Error('Invalid storage key'); return join(local()!, key); }
@@ -45,6 +46,11 @@ export async function presignPDF(key: string, size: number) {
     if (local()) return null;
     return getSignedUrl(s3(), new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key,
         ContentType: 'application/pdf', ContentLength: size }), { expiresIn: 600 });
+}
+/** Lets the app read a PDF straight from storage, so its size never has to fit in a function response. */
+export async function presignDownload(key: string) {
+    if (local()) return null;
+    return getSignedUrl(s3(), new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }), { expiresIn: 3600 });
 }
 /**
  * Copies a staged upload inside the bucket, so its size never has to fit in function memory.
