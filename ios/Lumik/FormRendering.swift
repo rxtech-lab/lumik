@@ -75,8 +75,10 @@ struct SignatureStamp: Hashable, Sendable {
 enum FormRenderError: LocalizedError {
   case unreadable
   case locked
+  case invalidSignaturePlacement
   var errorDescription: String? {
     switch self {
+    case .invalidSignaturePlacement: "Review the signature locations before signing. Every signature must fit on a PDF page."
     case .unreadable: "This PDF can’t be read. It may be damaged."
     case .locked: "This PDF is password protected, so it can’t be filled in."
     }
@@ -122,6 +124,14 @@ enum FormRenderer {
   ) throws -> Data {
     guard let document = PDFDocument(data: base) else { throw FormRenderError.unreadable }
     if document.isLocked { throw FormRenderError.locked }
+    for stamp in stamps {
+      let placement = stamp.placement
+      guard placement.page >= 0, placement.page < document.pageCount,
+        [placement.x, placement.y, placement.w, placement.h].allSatisfy({ $0.isFinite }),
+        placement.x >= 0, placement.y >= 0, placement.w > 0, placement.h > 0,
+        placement.x + placement.w <= 1.001, placement.y + placement.h <= 1.001
+      else { throw FormRenderError.invalidSignaturePlacement }
+    }
     let marks = marks(in: document, base: base, sections: sections, values: values, stamps: stamps)
     let output = NSMutableData()
     guard let consumer = CGDataConsumer(data: output) else { throw FormRenderError.unreadable }

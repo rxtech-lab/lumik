@@ -265,6 +265,8 @@ import SwiftUI
   ) async throws -> T {
     try JSONDecoder().decode(type, from: await request(path, method: method, body: body))
   }
+  var hasLoadedSigningRequests = false
+
   func refresh() async {
     if isPreview {
       groups = [
@@ -284,7 +286,16 @@ import SwiftUI
     }
     loading = true
     defer { loading = false }
-    do { groups = try await fetch([ScanGroup].self, "groups") } catch {
+    do {
+      if let id = selectedGroupID {
+        await loadGroupPage(id)
+      } else {
+        let result = try await fetch(GroupOverview.self, "library")
+        groups = result.groups
+        signingRequests = result.requests
+        hasLoadedSigningRequests = true
+      }
+    } catch {
       if !isSilentCancellation(error) { self.error = error.localizedDescription }
     }
   }
@@ -379,6 +390,9 @@ import SwiftUI
     do {
       let result = try await fetch(GroupOverview.self, "groups/\(id)/overview")
       if selectedGroupID == id && documentLoadID == loadID && !Task.isCancelled {
+        groups = result.groups
+        signingRequests = result.requests
+        hasLoadedSigningRequests = true
         documents = result.documents
         views = result.views
         groupForms = result.forms

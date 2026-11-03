@@ -33,8 +33,14 @@ async function becomeCurrent(repo: Repository, forms: Forms, documentId: string,
 export async function paperworkRoute(repo: Repository, req: Request, p: string[]): Promise<Response | null> {
     const method = req.method;
     const forms = new Forms(repo.owner);
-    if (p[0] === 'groups' && p[2] === 'overview' && p.length === 3 && method === 'GET')
-        return Response.json(await forms.overview(p[1]));
+    if (method === 'GET' && ((p[0] === 'library' && p.length === 1) ||
+        (p[0] === 'groups' && p[2] === 'overview' && p.length === 3))) {
+        const [groups, requests, overview] = await Promise.all([
+            repo.groups(), forms.signingRequests(),
+            p[0] === 'groups' ? forms.overview(p[1]) : Promise.resolve({ documents: [], views: [], forms: [] }),
+        ]);
+        return Response.json({ ...overview, groups, requests });
+    }
     if (p[0] === 'form-templates' && p.length === 2 && method === 'PATCH') {
         const b = templateEdit.parse(await jsonBody(req, largeBody));
         return Response.json(await forms.updateTemplate(p[1], b.title, b.sections));

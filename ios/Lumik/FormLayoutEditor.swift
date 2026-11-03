@@ -55,7 +55,7 @@ struct PDFPageSurface<Overlay: View>: View {
         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }
-    .task(id: "\(page)-\(resolution)") { render() }
+    .task(id: "\(ObjectIdentifier(document))-\(page)-\(resolution)") { render() }
   }
   private func render() {
     guard let pdfPage = document.page(at: page) else { return }
@@ -96,38 +96,82 @@ struct DraggablePlacement<Content: View>: View {
         .gesture(moveGesture, including: isMovable ? .all : .subviews)
         .onTapGesture { onSelect() }
       if isSelected {
-        Circle().fill(tint).overlay { Circle().strokeBorder(.white, lineWidth: 1.5) }
-          .frame(width: 14, height: 14).offset(x: 7, y: 7)
-          .contentShape(Rectangle().size(width: 30, height: 30))
-          .gesture(resizeGesture)
-          .accessibilityLabel("Resize")
+        ForEach(0..<8, id: \.self) { index in
+          let handle = handles[index]
+          Circle().fill(tint).overlay { Circle().strokeBorder(.white, lineWidth: 1.5) }
+            .frame(width: 10, height: 10)
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
+            .position(x: (handle.x + 1) * frame.width / 2, y: (handle.y + 1) * frame.height / 2)
+            .gesture(resizeGesture(handle))
+            .accessibilityLabel("Resize " + handle.name)
+        }
       }
     }
     .frame(width: frame.width, height: frame.height)
     .position(x: frame.midX, y: frame.midY)
   }
   private var moveGesture: some Gesture {
-    DragGesture(minimumDistance: 2).onChanged { value in
+    DragGesture(minimumDistance: 2, coordinateSpace: .global).onChanged { value in
       let start = moveStart ?? placement
       if moveStart == nil {
         moveStart = placement
         onSelect()
       }
-      placement.manual = true
-      placement.x = min(max(start.x + value.translation.width / pageSize.width, 0), 1 - placement.w)
-      placement.y = min(max(start.y + value.translation.height / pageSize.height, 0), 1 - placement.h)
+      var next = start
+      next.manual = true
+      next.x = min(max(start.x + value.translation.width / pageSize.width, 0), 1 - start.w)
+      next.y = min(max(start.y + value.translation.height / pageSize.height, 0), 1 - start.h)
+      placement = next
     }.onEnded { _ in
       moveStart = nil
       Haptics.tap()
     }
   }
-  private var resizeGesture: some Gesture {
-    DragGesture(minimumDistance: 0).onChanged { value in
+  private struct ResizeHandle {
+    let x: CGFloat
+    let y: CGFloat
+    let name: String
+  }
+  private var handles: [ResizeHandle] {
+    [ResizeHandle(x: -1, y: -1, name: "top left"),
+     ResizeHandle(x: 0, y: -1, name: "top edge"),
+     ResizeHandle(x: 1, y: -1, name: "top right"),
+     ResizeHandle(x: 1, y: 0, name: "right edge"),
+     ResizeHandle(x: 1, y: 1, name: "bottom right"),
+     ResizeHandle(x: 0, y: 1, name: "bottom edge"),
+     ResizeHandle(x: -1, y: 1, name: "bottom left"),
+     ResizeHandle(x: -1, y: 0, name: "left edge")]
+  }
+  private func resizeGesture(_ handle: ResizeHandle) -> some Gesture {
+    DragGesture(minimumDistance: 0, coordinateSpace: .global).onChanged { value in
+      guard pageSize.width > 0, pageSize.height > 0 else { return }
       let start = resizeStart ?? placement
       if resizeStart == nil { resizeStart = placement }
-      placement.manual = true
-      placement.w = min(max(start.w + value.translation.width / pageSize.width, minimumSide), 1 - placement.x)
-      placement.h = min(max(start.h + value.translation.height / pageSize.height, minimumSide), 1 - placement.y)
+      var next = start
+      next.manual = true
+      let maxWidth = handle.x < 0 ? start.x + start.w : 1 - start.x
+      let maxHeight = handle.y < 0 ? start.y + start.h : 1 - start.y
+      if handle.x != 0 && handle.y != 0 {
+        // Project the pointer onto the original diagonal, keeping the opposite corner fixed.
+        let width = start.w * pageSize.width
+        let height = start.h * pageSize.height
+        guard width > 0, height > 0 else { return }
+        let delta = (handle.x * value.translation.width * width
+          + handle.y * value.translation.height * height) / (width * width + height * height)
+        let maximum = min(maxWidth / start.w, maxHeight / start.h)
+        let minimum = min(maximum, max(minimumSide / start.w, minimumSide / start.h))
+        let scale = min(max(1 + delta, minimum), maximum)
+        next.w = start.w * scale
+        next.h = start.h * scale
+      } else if handle.x != 0 {
+        next.w = min(max(start.w + handle.x * value.translation.width / pageSize.width, minimumSide), maxWidth)
+      } else {
+        next.h = min(max(start.h + handle.y * value.translation.height / pageSize.height, minimumSide), maxHeight)
+      }
+      if handle.x < 0 { next.x = start.x + start.w - next.w }
+      if handle.y < 0 { next.y = start.y + start.h - next.h }
+      placement = next
     }.onEnded { _ in
       resizeStart = nil
       Haptics.tap()
@@ -493,16 +537,20 @@ struct FormLayoutEditor: View {
         }
       }
     }.formStyle(.grouped)
+      // Give each action its own hit target inside the grouped Form.
+      .buttonStyle(.borderless)
   }
   @ViewBuilder private func selectedFieldSections(_ index: (section: Int, field: Int)) -> some View {
     let snapshot = sections[index.section].fields[index.field]
     let field = Binding(
       get: {
         sections.indices.contains(index.section) && sections[index.section].fields.indices.contains(index.field)
+          && sections[index.section].fields[index.field].id == snapshot.id
           ? sections[index.section].fields[index.field] : snapshot
       },
       set: { value in
-        guard sections.indices.contains(index.section), sections[index.section].fields.indices.contains(index.field)
+        guard sections.indices.contains(index.section), sections[index.section].fields.indices.contains(index.field),
+          sections[index.section].fields[index.field].id == snapshot.id
         else { return }
         sections[index.section].fields[index.field] = value
       })
@@ -522,9 +570,9 @@ struct FormLayoutEditor: View {
       Text("Field")
     } footer: {
       #if os(macOS)
-        Text("Drag its box on the page to move it, and its corner to resize it. Pinch or use the zoom buttons for a closer look. Saved positions apply to every copy of this form.")
+        Text("Drag its box on the page to move it, and its handles to resize it. Corners keep the aspect ratio; edges change one dimension. Pinch or use the zoom buttons for a closer look. Saved positions apply to every copy of this form.")
       #else
-        Text("Tap a box to select it, then drag to move it or drag its corner to resize it. Pinch to zoom, and drag anywhere else to pan. Saved positions apply to every copy of this form.")
+        Text("Tap a box to select it, then drag to move it or drag its handles to resize it. Corners keep the aspect ratio; edges change one dimension. Pinch to zoom, and drag anywhere else to pan. Saved positions apply to every copy of this form.")
       #endif
     }
     if let box = selectedBox {
@@ -555,9 +603,12 @@ struct FormLayoutEditor: View {
       }
       Button("Delete field", systemImage: "trash", role: .destructive) {
         Haptics.tap()
-        sections[index.section].fields.remove(at: index.field)
-        if sections[index.section].fields.isEmpty { sections.remove(at: index.section) }
         selectedID = nil
+        selectedBoxID = nil
+        for section in sections.indices {
+          sections[section].fields.removeAll { $0.id == snapshot.id }
+        }
+        sections.removeAll { $0.fields.isEmpty }
       }
     }
   }

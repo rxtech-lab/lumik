@@ -85,7 +85,8 @@ struct SignatureCaptureView: View {
               Text(name.isEmpty ? option.1 : name)
                 .font(.custom(option.0, size: option.0 == "Zapfino" ? 20 : 28)).lineLimit(1)
                 .minimumScaleFactor(0.5).foregroundStyle(Color(cgColor: SignatureArt.ink))
-              Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .signaturePaper()
               if font == option.0 { Image(systemName: "checkmark").foregroundStyle(Color.buddyGreen) }
             }.contentShape(Rectangle())
           }.buttonStyle(.plain).accessibilityLabel(option.1)
@@ -144,15 +145,17 @@ private struct SignaturePad: View {
       #endif
     }
   }
+  /// The pad is white paper in every appearance, so its text can't follow the system's colors.
+  private static let hintColor = Color.black.opacity(0.6)
   @ViewBuilder private var hint: some View {
     #if os(macOS)
       Text(
         trackpadMode
           ? (trackpadActive ? "Draw with one finger on your trackpad. Press any key when you’re done." : "Click here, then draw with one finger on your trackpad.")
           : "Sign here by dragging with your trackpad or mouse."
-      ).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
+      ).foregroundStyle(Self.hintColor).multilineTextAlignment(.center).padding()
     #else
-      Text("Sign here with your finger").foregroundStyle(.secondary)
+      Text("Sign here with your finger").foregroundStyle(Self.hintColor)
     #endif
   }
   private func pointerGesture(in size: CGSize) -> some Gesture {
@@ -274,6 +277,13 @@ private struct SignaturePad: View {
     }
   }
 #endif
+extension View {
+  /// Signature ink is dark navy, as on the PDF, so on screen it always sits on white paper too.
+  func signaturePaper() -> some View {
+    padding(.horizontal, 12).padding(.vertical, 6)
+      .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+}
 /// Draws a signature in SwiftUI with the same code that writes it into the PDF.
 struct SignatureArtView: View {
   let art: SignatureArt
