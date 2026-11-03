@@ -6,6 +6,7 @@ import { createClient, type Client } from '@libsql/client';
 import { migrate } from '../lib/db';
 import { purgeExpiredGroups, Repository } from '../lib/repository';
 import { pdfName, validateSchema, validateData } from '../lib/contracts';
+import { runSQL } from '../lib/sql-sandbox';
 let dir: string;
 let client: Client;
 let alice: Repository;
@@ -13,6 +14,27 @@ let bob: Repository;
 const draft = { name: 'Invoices', instructions: 'Extract invoice details', namingTemplate: '{vendor}-{title}', schema: { type: 'object', properties: { vendor: { type: 'string' }, total: { type: 'number' } }, required: ['vendor', 'total'], additionalProperties: false } };
 beforeEach(async () => { dir = mkdtempSync(join(tmpdir(), 'scanner-test-')); client = createClient({ url: 'file:' + join(dir, 'test.db') }); await migrate(client); alice = new Repository('alice', client); bob = new Repository('bob', client); });
 afterEach(() => { client.close(); rmSync(dir, { recursive: true, force: true }); });
+describe('saved chat messages', () => {
+    it('returns the latest conversation in order, for its owner only', async () => {
+        expect(await alice.latestConversation()).toEqual({ conversationId: null, messages: [] });
+        await alice.addChatMessage('old', 'user', 'first conversation');
+        await alice.addChatMessage('new', 'user', 'how much?');
+        await alice.addChatMessage('new', 'assistant', '$12', [{ tool: 'run_sql', detail: 'SELECT 1' }]);
+        const latest = await alice.latestConversation();
+        expect(latest.conversationId).toBe('new');
+        expect(latest.messages.map(m => [m.role, m.content])).toEqual([['user', 'how much?'], ['assistant', '$12']]);
+        expect(latest.messages[1].activity).toEqual([{ tool: 'run_sql', detail: 'SELECT 1' }]);
+        expect(await bob.latestConversation()).toEqual({ conversationId: null, messages: [] });
+    });
+    it('keeps only the last 100 messages of a long conversation', async () => {
+        for (let i = 0; i < 101; i++)
+            await alice.addChatMessage('long', 'user', `m${i}`);
+        const { messages } = await alice.latestConversation();
+        expect(messages.length).toBe(100);
+        expect(messages[0].content).toBe('m1');
+        expect(messages[99].content).toBe('m100');
+    });
+});
 describe('tenant isolation and document lifecycle', () => {
     it('never exposes another owner’s groups or documents', async () => {
         const group = await alice.createGroup(draft);
@@ -35,6 +57,24 @@ describe('tenant isolation and document lifecycle', () => {
         await alice.claimDocument(doc.id);
         await alice.complete(doc.id, 'renamed.pdf', { vendor: 'A', total: 42 });
         expect((await alice.document(doc.id)).status).toBe('ready');
+    });
+    it('renames a document without touching its status or data', async () => {
+        const group = await alice.createGroup(draft);
+        const doc = await alice.addDocument(group.id, 'doc-a', 'a.pdf', 100);
+        await expect(bob.renameDocument(doc.id, 'stolen')).rejects.toMatchObject({ status: 404 });
+        expect(await alice.renameDocument(doc.id, 'March/invoice.PDF')).toMatchObject({ name: 'March-invoice.pdf', originalName: 'a.pdf', status: 'uploaded', data: null });
+        await alice.claimDocument(doc.id);
+        await expect(alice.renameDocument(doc.id, 'busy')).rejects.toMatchObject({ status: 409 });
+        await alice.complete(doc.id, 'done.pdf', { vendor: 'A', total: 42 });
+        expect(await alice.renameDocument(doc.id, 'kept')).toMatchObject({ name: 'kept.pdf', status: 'ready', data: { vendor: 'A', total: 42 } });
+    });
+    it('applies a proposed rename only once it is approved', async () => {
+        const group = await alice.createGroup(draft);
+        const doc = await alice.addDocument(group.id, 'doc-a', 'a.pdf', 100);
+        const proposal = await alice.propose({ action: 'rename_document', documentId: doc.id, name: 'Proposed' });
+        expect((await alice.document(doc.id)).name).toBe('a.pdf');
+        await alice.resolveProposal(proposal.id, true);
+        expect(await alice.document(doc.id)).toMatchObject({ name: 'Proposed.pdf', status: 'uploaded' });
     });
     it('hides a deleted group and keeps its PDFs until restored', async () => {
         const group = await alice.createGroup(draft);
@@ -118,6 +158,156 @@ describe('agent approvals', () => {
         await alice.resolveProposal(approved.id, true);
         expect(await alice.groups()).toHaveLength(0);
         expect(await alice.deletedGroups()).toHaveLength(1);
+    });
+});
+describe('subgroups', () => {
+    it('creates a subgroup only inside the owner’s own group', async () => {
+        const parent = await alice.createGroup(draft);
+        const child = await alice.createGroup({ ...draft, name: 'Refunds', parentId: parent.id });
+        expect(child).toMatchObject({ parentId: parent.id, kind: 'group' });
+        await expect(bob.createGroup({ ...draft, parentId: parent.id })).rejects.toMatchObject({ status: 404 });
+    });
+    it('sends subgroups to the Recycle Bin and restores them with their parent', async () => {
+        const parent = await alice.createGroup(draft);
+        const child = await alice.createGroup({ ...draft, name: 'Child', parentId: parent.id });
+        const grandchild = await alice.createGroup({ ...draft, name: 'Grandchild', parentId: child.id });
+        await alice.addDocument(parent.id, 'doc-a', 'a.pdf', 100);
+        await alice.addDocument(grandchild.id, 'doc-b', 'b.pdf', 100);
+        await alice.deleteGroup(parent.id);
+        expect(await alice.groups()).toEqual([]);
+        const bin = await alice.deletedGroups();
+        expect(bin.map(g => [g.id, g.documentCount])).toEqual([[parent.id, 2]]);
+        await expect(alice.restoreGroup(child.id)).rejects.toMatchObject({ status: 404 });
+        await alice.restoreGroup(parent.id);
+        expect((await alice.groups()).map(g => g.id).sort()).toEqual([parent.id, child.id, grandchild.id].sort());
+        expect((await alice.document('doc-b')).groupId).toBe(grandchild.id);
+    });
+    it('purges a deleted group’s subgroups and queues all of their PDFs', async () => {
+        const parent = await alice.createGroup(draft);
+        const child = await alice.createGroup({ ...draft, parentId: parent.id });
+        await alice.addDocument(child.id, 'doc-a', 'a.pdf', 100);
+        await alice.deleteGroup(parent.id);
+        await alice.purgeGroup(parent.id);
+        expect((await client.execute('SELECT id FROM groups')).rows).toHaveLength(0);
+        expect((await client.execute('SELECT storage_key FROM gc')).rows.map(r => r.storage_key)).toEqual(['doc-a.pdf']);
+    });
+    it('restores a subgroup to the top level when its parent is no longer there', async () => {
+        const parent = await alice.createGroup(draft);
+        const child = await alice.createGroup({ ...draft, name: 'Child', parentId: parent.id });
+        await alice.deleteGroup(child.id);
+        await new Promise(resolve => setTimeout(resolve, 2));
+        await alice.deleteGroup(parent.id);
+        expect((await alice.deletedGroups()).map(g => g.id).sort()).toEqual([parent.id, child.id].sort());
+        expect(await alice.restoreGroup(child.id)).toMatchObject({ id: child.id, parentId: null });
+        expect(await alice.restoreGroup(parent.id)).toMatchObject({ id: parent.id });
+    });
+});
+describe('agent SQL', () => {
+    it('can read the group hierarchy', async () => {
+        const parent = await alice.createGroup(draft);
+        const child = await alice.createGroup({ ...draft, name: 'Child', parentId: parent.id });
+        await alice.inbox();
+        const { result } = await runSQL(await alice.sandboxData(), { result: { sql: "SELECT id, parent_id FROM groups WHERE kind='group' AND parent_id IS NOT NULL" } });
+        expect(result.rows).toEqual([{ id: child.id, parent_id: parent.id }]);
+    });
+});
+describe('inbox', () => {
+    it('gives each owner one inbox that can’t be edited, deleted, or nested into', async () => {
+        const inbox = await alice.inbox();
+        expect(inbox).toMatchObject({ kind: 'inbox', name: 'Inbox' });
+        expect((await alice.inbox()).id).toBe(inbox.id);
+        expect((await bob.inbox()).id).not.toBe(inbox.id);
+        await expect(alice.deleteGroup(inbox.id)).rejects.toMatchObject({ status: 422 });
+        await expect(alice.updateGroup(inbox.id, draft)).rejects.toMatchObject({ status: 422 });
+        await expect(alice.createGroup({ ...draft, parentId: inbox.id })).rejects.toMatchObject({ status: 422 });
+        expect(() => validateSchema(inbox.schema)).not.toThrow();
+    });
+});
+describe('moving documents', () => {
+    it('keeps extracted data when both groups have the same fields', async () => {
+        const parent = await alice.createGroup(draft);
+        const child = await alice.createGroup({ ...draft, name: 'Child', parentId: parent.id });
+        const doc = await alice.addDocument(parent.id, 'doc-a', 'a.pdf', 100);
+        await alice.complete(doc.id, 'done.pdf', { vendor: 'A', total: 1 });
+        expect(await alice.moveDocument(doc.id, child.id)).toMatchObject({ reread: false, document: { groupId: child.id, status: 'ready', data: { vendor: 'A', total: 1 } } });
+        expect(await alice.moveDocument(doc.id, parent.id)).toMatchObject({ reread: false, document: { groupId: parent.id, name: 'done.pdf' } });
+        expect(await alice.moveDocument(doc.id, parent.id)).toMatchObject({ reread: false });
+    });
+    it('clears old fields and marks the PDF for reading when the fields differ', async () => {
+        const from = await alice.createGroup(draft);
+        const to = await alice.createGroup({ ...draft, schema: { type: 'object', properties: { other: { type: 'string' } } } });
+        const doc = await alice.addDocument(from.id, 'doc-a', 'a.pdf', 100);
+        await alice.complete(doc.id, 'done.pdf', { vendor: 'A', total: 1 });
+        expect(await alice.moveDocument(doc.id, to.id)).toMatchObject({ reread: true, document: { groupId: to.id, status: 'processing', data: null } });
+        await expect(alice.moveDocument(doc.id, from.id)).rejects.toMatchObject({ status: 409 });
+    });
+    it('refuses another owner’s documents and groups, and the inbox as a target', async () => {
+        const mine = await alice.createGroup(draft);
+        const theirs = await bob.createGroup(draft);
+        const doc = await alice.addDocument(mine.id, 'doc-a', 'a.pdf', 100);
+        await expect(bob.moveDocument(doc.id, theirs.id)).rejects.toMatchObject({ status: 404 });
+        await expect(alice.moveDocument(doc.id, theirs.id)).rejects.toMatchObject({ status: 404 });
+        await expect(alice.moveDocument(doc.id, (await alice.inbox()).id)).rejects.toMatchObject({ status: 422 });
+    });
+});
+describe('organize proposals', () => {
+    it('creates nested groups and files scans only once approved', async () => {
+        const inbox = await alice.inbox();
+        const finance = await alice.createGroup({ ...draft, name: 'Finance' });
+        const scan = await alice.addDocument(inbox.id, 'scan-a', 'Scan.pdf', 100);
+        const other = await alice.addDocument(finance.id, 'doc-b', 'b.pdf', 100);
+        const proposal = await alice.propose({
+            action: 'organize_documents',
+            newGroups: [{ ref: 'taxes', parent: finance.id, name: 'Taxes' }, { ref: '2026', parent: 'taxes', name: '2026' }],
+            moves: [{ documentId: scan.id, target: '2026' }, { documentId: other.id, target: 'taxes' }],
+        });
+        expect(proposal.mutation).toMatchObject({ review: {
+            newGroups: [{ path: 'Finance / Taxes', fields: ['vendor', 'total'] }, { path: 'Finance / Taxes / 2026', fields: ['vendor', 'total'] }],
+            moves: [{ document: 'Scan.pdf', from: 'Inbox', to: 'Finance / Taxes / 2026', reread: true }, { document: 'b.pdf', from: 'Finance', to: 'Finance / Taxes', reread: false }],
+        } });
+        expect(await alice.groups()).toHaveLength(2);
+        const { reread } = await alice.resolveProposal(proposal.id, true);
+        expect(reread).toEqual([scan.id]);
+        const groups = await alice.groups();
+        const taxes = groups.find(g => g.name === 'Taxes')!;
+        const year = groups.find(g => g.name === '2026')!;
+        expect(taxes).toMatchObject({ parentId: finance.id, instructions: draft.instructions, namingTemplate: draft.namingTemplate, schema: draft.schema });
+        expect(year.parentId).toBe(taxes.id);
+        expect(await alice.document(scan.id)).toMatchObject({ groupId: year.id, status: 'processing' });
+        expect(await alice.document(other.id)).toMatchObject({ groupId: taxes.id, status: 'uploaded' });
+        expect((await alice.groups()).find(g => g.id === inbox.id)?.documentCount).toBe(0);
+    });
+    it('applies nothing when any part of an approved plan is no longer possible', async () => {
+        const group = await alice.createGroup(draft);
+        const a = await alice.addDocument(group.id, 'doc-a', 'a.pdf', 100);
+        const b = await alice.addDocument(group.id, 'doc-b', 'b.pdf', 100);
+        const proposal = await alice.propose({ action: 'organize_documents', newGroups: [{ ref: 'sub', parent: group.id, name: 'Sub' }], moves: [{ documentId: a.id, target: 'sub' }, { documentId: b.id, target: 'sub' }] });
+        await alice.deleteDocument(b.id);
+        await expect(alice.resolveProposal(proposal.id, true)).rejects.toMatchObject({ status: 404 });
+        expect(await alice.groups()).toHaveLength(1);
+        expect((await alice.document(a.id)).groupId).toBe(group.id);
+    });
+    it('rejects a plan it could not carry out, so Buddy can fix it', async () => {
+        const group = await alice.createGroup(draft);
+        const theirs = await bob.createGroup(draft);
+        const doc = await alice.addDocument(group.id, 'doc-a', 'a.pdf', 100);
+        const plan = (rest: object) => alice.propose({ action: 'organize_documents', ...rest });
+        await expect(plan({})).rejects.toMatchObject({ status: 422 });
+        await expect(plan({ newGroups: [{ ref: 'x', name: 'No schema' }] })).rejects.toMatchObject({ status: 422 });
+        await expect(plan({ newGroups: [{ ref: 'x', parent: theirs.id, name: 'Foreign' }] })).rejects.toMatchObject({ status: 422 });
+        await expect(plan({ newGroups: [{ ref: 'x', parent: 'later', name: 'Early' }, { ref: 'later', parent: group.id, name: 'Later' }] })).rejects.toMatchObject({ status: 422 });
+        await expect(plan({ moves: [{ documentId: doc.id, target: theirs.id }] })).rejects.toMatchObject({ status: 422 });
+        await expect(plan({ moves: [{ documentId: doc.id, target: group.id }] })).rejects.toMatchObject({ status: 422 });
+        await expect(plan({ moves: [{ documentId: doc.id, target: (await alice.inbox()).id }] })).rejects.toMatchObject({ status: 422 });
+        await expect(bob.propose({ action: 'organize_documents', moves: [{ documentId: doc.id, target: theirs.id }] })).rejects.toMatchObject({ status: 404 });
+        await alice.claimDocument(doc.id);
+        const other = await alice.createGroup(draft);
+        await expect(plan({ moves: [{ documentId: doc.id, target: other.id }] })).rejects.toMatchObject({ status: 409 });
+        await expect(alice.proposals()).resolves.toEqual([]);
+    });
+    it('rejects a subgroup proposed under another owner’s group', async () => {
+        const theirs = await bob.createGroup(draft);
+        await expect(alice.propose({ action: 'create_group', group: { ...draft, parentId: theirs.id } })).rejects.toMatchObject({ status: 404 });
     });
 });
 describe('schemas and filenames', () => {

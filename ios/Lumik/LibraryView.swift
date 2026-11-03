@@ -18,7 +18,7 @@ struct LibraryView: View {
             Text("Scan it. Sort it. Find it.").foregroundStyle(.secondary)
           }.padding(.vertical, 16).listRowBackground(Color.clear)
         }
-        if store.groups.isEmpty {
+        if store.groupTree.isEmpty && (store.inbox?.documentCount ?? 0) == 0 {
           if !store.loading {
             ContentUnavailableView(
               "Start with a group", systemImage: "folder.badge.plus",
@@ -28,10 +28,15 @@ struct LibraryView: View {
             ).listRowBackground(Color.clear).listRowSeparator(.hidden)
           }
         } else {
+          if let inbox = store.inbox, inbox.documentCount > 0 {
+            Section {
+              NavigationLink(value: inbox.id) {
+                Label("Inbox", systemImage: "tray.full").badge(inbox.documentCount)
+              }
+            }
+          }
           Section("Your groups") {
-            ForEach(
-              store.groups.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
-            ) { group in
+            ForEach(store.sidebarGroups(matching: query)) { group in
               NavigationLink(value: group.id) {
                 HStack(spacing: 14) {
                   Image(systemName: "folder.fill").font(.title2).foregroundStyle(Color.buddyGreen)
@@ -39,9 +44,7 @@ struct LibraryView: View {
                       Color.buddyGreen.opacity(0.09), in: RoundedRectangle(cornerRadius: 14))
                   VStack(alignment: .leading, spacing: 4) {
                     Text(group.name).font(.headline)
-                    Text(
-                      "\(group.documentCount) documents · \(group.schema.object["properties"]?.object.count ?? 0) fields"
-                    ).font(.caption).foregroundStyle(.secondary)
+                    Text(store.groupSummary(group)).font(.caption).foregroundStyle(.secondary)
                   }
                 }.padding(.vertical, 5)
               }
@@ -110,11 +113,16 @@ struct LibraryView: View {
   }
 }
 struct GroupDetailView: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let group: ScanGroup
   @Environment(AppStore.self) private var store
+  @Environment(\.dismiss) private var dismiss
   @State private var editing = false
+  @State private var creatingSubgroup = false
+  @State private var moving: ScanDocument?
   @State private var groupToDelete: ScanGroup?
   @State private var documentToDelete: ScanDocument?
+  @State private var renaming: DocumentRename?
   @State private var importing = false
   @State private var scanning = false
   @State private var exportData: ExportFile?
@@ -122,8 +130,10 @@ struct GroupDetailView: View {
   @State private var filter: GroupView?
   private var statistics: [GroupView] { store.views.filter { $0.kind == "statistic" } }
   private var filters: [GroupView] { store.views.filter { $0.kind == "filter" } }
-  private var documentCountText: String {
-    group.documentCount == 1 ? "1 document" : "\(group.documentCount) documents"
+  private var subgroups: [ScanGroup] { store.subgroups(of: group.id) }
+  private var subtitle: String {
+    let parent = store.groups.first { $0.id == group.parentId }
+    return parent.map { "In \($0.name) · \(group.documentCountText)" } ?? group.documentCountText
   }
   private var filterMenu: some View {
     Menu {
@@ -149,27 +159,115 @@ struct GroupDetailView: View {
           ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
     }.accessibilityLabel("Filters")
   }
-  var body: some View {
-    List {
-      Section {
-        Button {
+  @ViewBuilder private func documentActions(_ document: ScanDocument) -> some View {
+    Button("Rename", systemImage: "character.cursor.ibeam") {
+      Haptics.tap()
+      renaming = DocumentRename(document: document)
+    }.disabled(document.status == "processing")
+    Button("Rename with AI", systemImage: "sparkles") {
+      Haptics.tap()
+      renaming = DocumentRename(document: document, suggestsName: true)
+    }.disabled(document.status == "processing")
+    Divider()
+    MoveDocumentButtons(store: store, document: document, moving: $moving)
+    Divider()
+    Button("Delete", systemImage: "trash", role: .destructive) {
+      Haptics.tap()
+      documentToDelete = document
+    }
+  }
+  private func activeFilterRow(_ active: DocumentFilter) -> some View {
+    HStack {
+      Label(active.title, systemImage: "line.3.horizontal.decrease").lineLimit(1)
+      Spacer()
+      Text("\(store.visibleDocuments.count) of \(store.documents.count)").font(.caption)
+        .foregroundStyle(.secondary)
+      Button("Clear filter", systemImage: "xmark.circle.fill") {
+        Haptics.tap()
+        store.documentFilter = nil
+      }.labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.secondary)
+    }
+  }
+  private var noMatchingDocuments: some View {
+    ContentUnavailableView(
+      "No matching documents", systemImage: "line.3.horizontal.decrease.circle",
+      description: Text("Try different values, or show all documents from the filter menu."))
+  }
+  #if os(macOS)
+    /// Tiles for what the group offers, then its documents in a sortable table that takes the rest.
+    private var content: some View {
+      VStack(spacing: 0) {
+        MacGroupOverview(
+          fieldCount: group.schema.object["properties"]?.object.count ?? 0,
+          instructions: group.instructions, statistics: statistics, subgroups: subgroups,
+          showsFields: !group.isInbox
+        ) {
           editing = true
           Haptics.tap()
-        } label: {
-          HStack {
-            Label {
-              Text("Extraction fields")
-            } icon: {
-              Image(systemName: "list.bullet.rectangle").foregroundStyle(Color.buddyGreen)
+        }
+        if let active = store.documentFilter {
+          activeFilterRow(active).padding(.horizontal, 20).padding(.bottom, 12)
+        }
+        if store.documents.isEmpty {
+          Group {
+            if !store.loading {
+              ContentUnavailableView(
+                "Ready for your first document", systemImage: "doc.viewfinder",
+                description: Text("Scan from a connected scanner or import PDFs using the actions menu."))
             }
-            Spacer()
-            Text((group.schema.object["properties"]?.object.count ?? 0).formatted())
-              .foregroundStyle(.secondary)
-          }.contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityHint("Edit group")
-      } footer: {
-        if !group.instructions.isEmpty {
-          Text(group.instructions).lineLimit(3)
+          }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if store.visibleDocuments.isEmpty {
+          noMatchingDocuments.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+          MacDocumentTable(documents: store.visibleDocuments) { documentActions($0) }
+        }
+      }
+    }
+  #else
+    private var content: some View {
+    List {
+      if group.isInbox {
+        Section { Text(group.instructions).foregroundStyle(.secondary) }
+      } else {
+        Section {
+          Button {
+            editing = true
+            Haptics.tap()
+          } label: {
+            HStack {
+              Label {
+                Text("Extraction fields")
+              } icon: {
+                Image(systemName: "list.bullet.rectangle").foregroundStyle(Color.buddyGreen)
+              }
+              Spacer()
+              Text((group.schema.object["properties"]?.object.count ?? 0).formatted())
+                .foregroundStyle(.secondary)
+            }.contentShape(Rectangle())
+          }.buttonStyle(.plain).accessibilityHint("Edit group")
+        } footer: {
+          if !group.instructions.isEmpty {
+            Text(group.instructions).lineLimit(3)
+          }
+        }
+      }
+      if !subgroups.isEmpty {
+        Section("Subgroups") {
+          ForEach(subgroups) { subgroup in
+            NavigationLink {
+              GroupDetailView(group: subgroup)
+            } label: {
+              LabeledContent {
+                Text(subgroup.documentCount.formatted())
+              } label: {
+                Label {
+                  Text(subgroup.name)
+                } icon: {
+                  Image(systemName: "folder.fill").foregroundStyle(Color.buddyGreen)
+                }
+              }
+            }
+          }
         }
       }
       if !statistics.isEmpty {
@@ -184,40 +282,18 @@ struct GroupDetailView: View {
         }
       }
       if let active = store.documentFilter {
-        Section {
-          HStack {
-            Label(active.title, systemImage: "line.3.horizontal.decrease").lineLimit(1)
-            Spacer()
-            Text("\(store.visibleDocuments.count) of \(store.documents.count)").font(.caption)
-              .foregroundStyle(.secondary)
-            Button("Clear filter", systemImage: "xmark.circle.fill") {
-              Haptics.tap()
-              store.documentFilter = nil
-            }.labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.secondary)
-          }
-        }
+        Section { activeFilterRow(active) }
       }
       if store.documents.isEmpty {
         if !store.loading {
-          Group {
-            #if os(iOS)
-              ContentUnavailableView(
-                "Ready for your first document", systemImage: "doc.viewfinder",
-                description: Text("Scan multiple pages or import an existing PDF using the actions menu.")
-              )
-            #else
-              ContentUnavailableView(
-                "Ready for your first document", systemImage: "doc.viewfinder",
-                description: Text("Scan from a connected scanner or import PDFs using the actions menu.")
-              )
-            #endif
-          }.frame(maxWidth: .infinity).listRowBackground(Color.clear).listRowSeparator(.hidden)
+          ContentUnavailableView(
+            "Ready for your first document", systemImage: "doc.viewfinder",
+            description: Text("Scan multiple pages or import an existing PDF using the actions menu.")
+          ).frame(maxWidth: .infinity).listRowBackground(Color.clear).listRowSeparator(.hidden)
         }
       } else if store.visibleDocuments.isEmpty {
-        ContentUnavailableView(
-          "No matching documents", systemImage: "line.3.horizontal.decrease.circle",
-          description: Text("Try different values, or show all documents from the filter menu.")
-        ).frame(maxWidth: .infinity).listRowBackground(Color.clear).listRowSeparator(.hidden)
+        noMatchingDocuments.frame(maxWidth: .infinity).listRowBackground(Color.clear)
+          .listRowSeparator(.hidden)
       } else {
         Section("Documents") {
           ForEach(store.visibleDocuments) { document in
@@ -226,12 +302,7 @@ struct GroupDetailView: View {
             } label: {
               DocumentRow(document: document)
             }
-            .contextMenu {
-              Button("Delete", systemImage: "trash", role: .destructive) {
-                Haptics.tap()
-                documentToDelete = document
-              }
-            }
+            .contextMenu { documentActions(document) }
             .swipeActions(allowsFullSwipe: false) {
               SwipeDeleteButton {
                 Haptics.tap()
@@ -242,14 +313,21 @@ struct GroupDetailView: View {
         }
       }
     }
-      #if os(iOS)
-        .listStyle(.insetGrouped)
-      #else
-        .listStyle(.inset)
-      #endif
-      .overlay { if store.documents.isEmpty && store.loading { ProgressView() } }
+    .listStyle(.insetGrouped)
+    }
+  #endif
+  var body: some View {
+    ZStack {
+      if store.loading {
+        ResourceLoadingView(title: "Loading documents", subtitle: "Getting your library ready…")
+          .transition(.opacity)
+      } else {
+        content.transition(.opacity)
+      }
+    }
+      .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: store.loading)
       .navigationTitle(group.name)
-      .navigationSubtitle(documentCountText)
+      .navigationSubtitle(subtitle)
       .toolbar {
         ToolbarItem(placement: .primaryAction) { AgentToolbarButton() }
         ToolbarItem(placement: .primaryAction) { filterMenu }
@@ -268,9 +346,21 @@ struct GroupDetailView: View {
               importing = true
             }
             Divider()
-            Button("Edit group", systemImage: "slider.horizontal.3") {
-              editing = true
-              Haptics.tap()
+            Button("Organize with Buddy", systemImage: "sparkles") {
+              store.askBuddy(
+                group.isInbox
+                  ? "Organize the documents in my Inbox."
+                  : "Organize the documents in this group into subgroups.")
+            }
+            if !group.isInbox {
+              Button("New subgroup", systemImage: "folder.badge.plus") {
+                creatingSubgroup = true
+                Haptics.tap()
+              }
+              Button("Edit group", systemImage: "slider.horizontal.3") {
+                editing = true
+                Haptics.tap()
+              }
             }
             Button("Export ZIP", systemImage: "square.and.arrow.up") {
               Task {
@@ -286,9 +376,11 @@ struct GroupDetailView: View {
                 Task { await store.loadDocuments(group.id) }
               }
             #endif
-            Button("Delete group", systemImage: "trash", role: .destructive) {
-              groupToDelete = group
-              Haptics.tap()
+            if !group.isInbox {
+              Button("Delete group", systemImage: "trash", role: .destructive) {
+                groupToDelete = group
+                Haptics.tap()
+              }
             }
           } label: {
             Image(systemName: "ellipsis")
@@ -303,7 +395,16 @@ struct GroupDetailView: View {
       }
       .sheet(item: $filter) { FilterSheet(view: $0).fullSheet().actionFeedback() }
       .sheet(isPresented: $editing) { GroupEditor(group: group).fullSheet().actionFeedback() }
+      .sheet(isPresented: $creatingSubgroup) {
+        GroupEditor(parent: group).fullSheet().actionFeedback()
+      }
+      .sheet(item: $moving) { MoveDocumentView(document: $0).fullSheet().actionFeedback() }
+      // A subgroup opened from its parent has to leave when it is deleted.
+      .onChange(of: store.groups) {
+        if !store.groups.contains(where: { $0.id == group.id }) { dismiss() }
+      }
       .confirmGroupDeletion($groupToDelete)
+      .sheet(item: $renaming) { RenameDocumentView(request: $0).fullSheet().actionFeedback() }
       .sheet(item: $documentToDelete) { document in
         DeleteView(
           title: document.name, message: "This permanently removes the PDF and its extracted data."
@@ -366,8 +467,12 @@ private struct GroupDeletionConfirmation: ViewModifier {
         }
       }
       Button("Cancel", role: .cancel) {}
-    } message: { _ in
-      Text("You can restore it for 30 days. After that, the group and all its PDFs are permanently deleted.")
+    } message: { group in
+      Text(
+        store.subgroups(of: group.id).isEmpty
+          ? "You can restore it for 30 days. After that, the group and all its PDFs are permanently deleted."
+          : "Its subgroups move with it. You can restore them for 30 days. After that, they and all their PDFs are permanently deleted."
+      )
     }
   }
 }
@@ -544,8 +649,9 @@ struct ImportDestinationView: View {
   @Environment(\.dismiss) private var dismiss
   var body: some View {
     NavigationStack {
-      List(store.groups) { group in
-        Button(group.name) {
+      List(store.groupTree) { row in
+        let group = row.group
+        Button {
           Task {
             guard let url = store.pendingImport else { return }
             if await store.perform(
@@ -561,9 +667,11 @@ struct ImportDestinationView: View {
               dismiss()
             }
           }
+        } label: {
+          Text(group.name).padding(.leading, CGFloat(min(row.depth, 6)) * 18)
         }
       }.overlay {
-        if store.groups.isEmpty {
+        if store.groupTree.isEmpty {
           ContentUnavailableView(
             "Create a group first", systemImage: "folder.badge.plus",
             description: Text("Close this sheet, create a group, then open your PDF again."))

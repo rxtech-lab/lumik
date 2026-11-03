@@ -1,3 +1,4 @@
+import { assertAccountActive } from './account';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { ApiError } from './contracts';
 const keys = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
@@ -14,7 +15,9 @@ export async function principal(request: Request) {
         key = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`));
         keys.set(issuer, key);
     }
-    return verifyAccessToken(token, issuer, clients, key);
+    const owner = await verifyAccessToken(token, issuer, clients, key);
+    await assertAccountActive(owner);
+    return owner;
 }
 export async function verifyAccessToken(token: string, issuer: string, clients: string[], key: Parameters<typeof jwtVerify>[1]) {
     try {

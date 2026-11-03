@@ -15,10 +15,14 @@
     var body: some View {
       NavigationSplitView {
         List(selection: $selection) {
+          if let inbox = store.inbox, inbox.documentCount > 0 || selection == .group(inbox.id) {
+            Section {
+              Label("Inbox", systemImage: "tray.full").badge(inbox.documentCount)
+                .tag(MacDestination.group(inbox.id))
+            }
+          }
           Section("Groups") {
-            ForEach(
-              store.groups.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
-            ) { group in
+            ForEach(store.sidebarGroups(matching: query)) { group in
               Label {
                 Text(group.name).lineLimit(1)
               } icon: {
@@ -83,7 +87,7 @@
       placeholderContent.toolbar { ToolbarItem(placement: .primaryAction) { AgentToolbarButton() } }
     }
     @ViewBuilder private var placeholderContent: some View {
-      if store.groups.isEmpty && !store.loading {
+      if store.groupTree.isEmpty && !store.loading {
         ContentUnavailableView(
           "Start with a group", systemImage: "folder.badge.plus",
           description: Text(

@@ -50,6 +50,7 @@ private struct JSONRenderNode: View {
   let state: JSONRenderState
   let scope: RenderScope
   let depth: Int
+  @Environment(\.stretchesRenderCards) private var stretchesCards
   private var element: [String: JSONValue] { elements[key]?.object ?? [:] }
   var body: some View {
     if depth < 24, !element.isEmpty, visible(element["visible"]) { content }
@@ -146,24 +147,30 @@ private struct JSONRenderNode: View {
     switch element["type"]?.string {
     case "Stack":
       if element["props"]?.object["direction"]?.string == "horizontal" {
+        // Fixing the vertical size lets the row settle on its tallest card for the others to match.
         HStack(alignment: .top, spacing: gap) { AnyView(childViews) }
+          .fixedSize(horizontal: false, vertical: true)
+          .environment(\.stretchesRenderCards, true)
       } else {
         VStack(alignment: .leading, spacing: gap) { AnyView(childViews) }
           .frame(maxWidth: .infinity, alignment: .leading)
       }
     case "Grid":
-      LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)], spacing: 12) {
-        AnyView(childViews)
-      }
+      EqualHeightGrid { AnyView(childViews) }.environment(\.stretchesRenderCards, true)
     case "Card":
-      VStack(alignment: .leading, spacing: 10) {
-        if let title = text("title") { Text(title).font(.headline) }
-        if let subtitle = text("subtitle") {
-          Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+      VStack(alignment: .leading, spacing: 12) {
+        if text("title") != nil || text("subtitle") != nil {
+          VStack(alignment: .leading, spacing: 2) {
+            if let title = text("title") { Text(title).font(.headline) }
+            if let subtitle = text("subtitle") {
+              Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+            }
+          }
         }
         AnyView(childViews)
-      }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+      }.padding(16)
+        .frame(maxWidth: .infinity, maxHeight: stretchesCards ? .infinity : nil, alignment: .topLeading)
+        .cardSurface()
     case "Heading": Text(text("text") ?? "").font(.title3.bold())
     case "Text":
       Text(text("text") ?? "").foregroundStyle(tone(text("tone")))
@@ -212,40 +219,58 @@ private struct JSONRenderNode: View {
     }
   }
   private var metric: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text(text("label") ?? "").font(.caption).foregroundStyle(.secondary)
+    VStack(alignment: .leading, spacing: 6) {
+      Text(text("label") ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
       Text(formatted(prop("value"), format: text("format"), currency: text("currency")))
-        .font(.system(.title2, design: .rounded, weight: .semibold)).minimumScaleFactor(0.6)
-        .lineLimit(1)
+        .font(.system(.title, design: .rounded, weight: .semibold)).monospacedDigit()
+        .minimumScaleFactor(0.6).lineLimit(1)
       if let detail = text("detail") {
-        Text(detail).font(.caption2).foregroundStyle(.secondary)
+        Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
       }
-    }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-      .background(Color.buddyGreen.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+    }.padding(16)
+      .frame(maxWidth: .infinity, maxHeight: stretchesCards ? .infinity : nil, alignment: .topLeading)
+      .cardSurface()
   }
   private var table: some View {
     let columns = prop("columns")?.array.map(\.object) ?? []
-    let rows = (prop("rows")?.array ?? []).prefix(200)
-    return ScrollView(.horizontal) {
-      Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
+    let rows = Array((prop("rows")?.array ?? []).prefix(200))
+    // Fills the card while the columns fit, and scrolls sideways only once they don't.
+    return ViewThatFits(in: .horizontal) {
+      tableGrid(columns, rows)
+      ScrollView(.horizontal) { tableGrid(columns, rows) }
+    }
+  }
+  private func tableGrid(_ columns: [[String: JSONValue]], _ rows: [JSONValue]) -> some View {
+    func alignment(_ column: [String: JSONValue]) -> Alignment {
+      let isNumeric =
+        switch column["format"]?.string {
+        case "number", "currency", "percent": true
+        case "date": false
+        default: rows.first?.object[column["key"]?.string ?? ""]?.numberValue != nil
+        }
+      return isNumeric ? .trailing : .leading
+    }
+    return Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 0) {
+      GridRow {
+        ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
+          Text(column["label"]?.uiText ?? "").font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary).lineLimit(1).fixedSize()
+            .frame(maxWidth: .infinity, alignment: alignment(column))
+        }
+      }.padding(.bottom, 6)
+      Divider()
+      ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+        if index > 0 { Divider().opacity(0.6) }
         GridRow {
           ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
-            Text(column["label"]?.uiText ?? "").font(.caption.weight(.semibold))
-              .foregroundStyle(.secondary)
+            Text(
+              formatted(
+                row.object[column["key"]?.string ?? ""], format: column["format"]?.string,
+                currency: column["currency"]?.string)
+            ).font(.body).monospacedDigit().textSelection(.enabled).fixedSize()
+              .frame(maxWidth: .infinity, alignment: alignment(column))
           }
-        }
-        Divider()
-        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-          GridRow {
-            ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
-              Text(
-                formatted(
-                  row.object[column["key"]?.string ?? ""], format: column["format"]?.string,
-                  currency: column["currency"]?.string)
-              ).font(.callout).textSelection(.enabled)
-            }
-          }
-        }
+        }.padding(.vertical, 8)
       }
     }
   }
@@ -287,6 +312,57 @@ private struct JSONRenderNode: View {
     case "negative": .red
     case "warning": .orange
     default: .primary
+    }
+  }
+}
+extension EnvironmentValues {
+  /// Set by containers that give their cards a shared height. Elsewhere a card keeps its own height,
+  /// so it can't swallow the free space of a form row or sheet.
+  @Entry var stretchesRenderCards = false
+}
+extension View {
+  /// The quiet, neutral surface behind cards and tiles, drawn the same in light and dark.
+  func cardSurface(cornerRadius: CGFloat = 14) -> some View {
+    let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    return background(.fill.quaternary, in: shape)
+      .overlay { shape.strokeBorder(.separator, lineWidth: 0.5) }
+  }
+}
+/// Wraps cells into equal columns and gives every cell the height of the tallest one.
+struct EqualHeightGrid: Layout {
+  var minimumWidth: CGFloat = 150
+  var spacing: CGFloat = 12
+  /// Whether a short list widens to span the row, or keeps its cells near the minimum width.
+  var fillsRow = true
+  private func columnCount(_ width: CGFloat, _ count: Int) -> Int {
+    let fitting = max(1, Int((width + spacing) / (minimumWidth + spacing)))
+    return fillsRow ? min(fitting, count) : fitting
+  }
+  private func cellWidth(_ width: CGFloat, _ columns: Int) -> CGFloat {
+    (width - spacing * CGFloat(columns - 1)) / CGFloat(columns)
+  }
+  private func rowCount(_ count: Int, _ columns: Int) -> Int { (count + columns - 1) / columns }
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    guard !subviews.isEmpty else { return .zero }
+    let ideal = minimumWidth * CGFloat(subviews.count) + spacing * CGFloat(subviews.count - 1)
+    let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? ideal
+    let columns = columnCount(width, subviews.count)
+    let cell = ProposedViewSize(width: cellWidth(width, columns), height: nil)
+    let height = subviews.map { $0.sizeThatFits(cell).height }.max() ?? 0
+    let rows = CGFloat(rowCount(subviews.count, columns))
+    return CGSize(width: width, height: height * rows + spacing * (rows - 1))
+  }
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    guard !subviews.isEmpty else { return }
+    let columns = columnCount(bounds.width, subviews.count)
+    let rows = CGFloat(rowCount(subviews.count, columns))
+    let width = cellWidth(bounds.width, columns)
+    let height = (bounds.height - spacing * (rows - 1)) / rows
+    for (index, subview) in subviews.enumerated() {
+      let origin = CGPoint(
+        x: bounds.minX + CGFloat(index % columns) * (width + spacing),
+        y: bounds.minY + CGFloat(index / columns) * (height + spacing))
+      subview.place(at: origin, proposal: ProposedViewSize(width: width, height: height))
     }
   }
 }

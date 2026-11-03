@@ -1,0 +1,27 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { beforeAll, afterAll, expect, it } from 'vitest';
+import { db, migrate } from '../lib/db';
+import { account, assertAccountActive, purgeAccounts } from '../lib/account';
+const dir=mkdtempSync(join(tmpdir(),'account-test-'));
+beforeAll(async()=>{process.env.TURSO_DATABASE_URL='file:'+join(dir,'test.db');await migrate();});
+afterAll(()=>{db().close();rmSync(dir,{recursive:true,force:true});});
+it('schedules idempotently and cancels only within seven days',async()=>{
+ const start=Date.now();
+ const first=await account('alice','POST');
+ expect(first.deleteAt).toBeGreaterThanOrEqual(start+7*86400000);
+ expect((await account('alice','POST')).deleteAt).toBe(first.deleteAt);
+ expect((await account('bob')).deleteAt).toBeNull();
+ expect((await account('alice','DELETE')).deleteAt).toBeNull();
+ await account('alice','POST');
+ await db().execute("UPDATE account_deletions SET delete_at=0 WHERE owner='alice'");
+ await expect(account('alice','DELETE')).rejects.toThrow();
+ await expect(assertAccountActive('alice')).rejects.toThrow();
+ await db().execute("INSERT INTO chat_messages VALUES('a','alice','c','user','private','[]','now')");
+ await db().execute("INSERT INTO chat_messages VALUES('b','bob','c','user','keep','[]','now')");
+ await purgeAccounts();
+ expect((await db().execute('SELECT owner FROM chat_messages')).rows.map(r=>r.owner)).toEqual(['bob']);
+ await expect(assertAccountActive('alice')).rejects.toThrow();
+ await purgeAccounts();
+});

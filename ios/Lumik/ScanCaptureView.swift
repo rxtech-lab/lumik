@@ -5,6 +5,8 @@
 
   struct ScanCaptureView: View {
     let group: ScanGroup
+    /// Set when scanning for Buddy, which takes each PDF and closes this when they are all sent.
+    var onUploaded: (@MainActor (ScanDocument) -> Void)? = nil
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var camera = false
@@ -14,6 +16,7 @@
     @State private var error: String?
     @State private var closing = false
     @State private var uploading = false
+    @State private var saveOptions = false
     @State private var status: String?
     @State private var editing: Int?
 
@@ -81,7 +84,7 @@
               camera = true
             }.disabled(uploading || !VNDocumentCameraViewController.isSupported)
             Spacer()
-            Button("Upload \(documents.count) PDFs") { upload() }
+            Button("Upload \(documents.count) PDFs") { Haptics.tap(); saveOptions = true }
               .disabled(uploading || documents.isEmpty || pageCount > 0)
           }
         }
@@ -94,6 +97,9 @@
             .padding().glassEffect(.regular, in: .capsule).padding()
             .allowsHitTesting(false)
           }
+        }
+        .sheet(isPresented: $saveOptions) {
+          ScanSaveOptions(count: documents.count) { dpi in upload(dpi: dpi) }
         }
         .sheet(isPresented: $camera) {
           DocumentCamera(completion: { result in
@@ -145,7 +151,7 @@
       return true
     }
 
-    private func upload() {
+    private func upload(dpi: Int) {
       Haptics.tap()
       uploading = true
       Task {
@@ -153,11 +159,18 @@
         do {
           while let data = documents.first {
             status = "Uploading \(total - documents.count + 1) of \(total)…"
-            try await store.upload(data, name: "Scan.pdf", groupID: group.id)
+            let prepared = try await Task.detached { try ScanExport.prepare(data, dpi: dpi) }.value
+            let uploaded = try await store.upload(prepared, name: "Scan.pdf", groupID: group.id)
+            onUploaded?(uploaded)
             documents.removeFirst()
           }
           status = "Uploaded. Reading and naming your PDFs."
           Haptics.success()
+          if onUploaded != nil {
+            uploading = false
+            dismiss()
+            return
+          }
         } catch {
           self.error = error.localizedDescription
           status = nil
@@ -199,7 +212,15 @@
       ) {
         let pdf = PDFDocument()
         for index in 0..<scan.pageCount {
-          guard let page = PDFPage(image: scan.imageOfPage(at: index)) else {
+          let image = scan.imageOfPage(at: index)
+          // Camera captures have no paper DPI; use a consistent 300-DPI baseline.
+          let bounds = CGRect(x: 0, y: 0, width: image.size.width * image.scale * 72 / 300,
+            height: image.size.height * image.scale * 72 / 300)
+          let pageData = UIGraphicsPDFRenderer(bounds: bounds).pdfData { context in
+            context.beginPage()
+            image.draw(in: bounds)
+          }
+          guard let page = PDFDocument(data: pageData)?.page(at: 0) else {
             completion(.failure(APIError(message: "A scanned page could not be converted. Please scan these pages again.")))
             return
           }

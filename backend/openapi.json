@@ -57,14 +57,14 @@
         }
       },
       "post": {
-        "summary": "Create group",
+        "summary": "Create a group, or a subgroup when parentId is set",
         "parameters": [],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GroupInput"
+                "$ref": "#/components/schemas/NewGroupInput"
               }
             }
           }
@@ -208,7 +208,7 @@
         }
       },
       "delete": {
-        "summary": "Move group to the Recycle Bin; it is permanently deleted after 30 days",
+        "summary": "Move group and its subgroups to the Recycle Bin; they are permanently deleted after 30 days",
         "parameters": [
           {
             "name": "groupId",
@@ -227,6 +227,45 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/inbox": {
+      "post": {
+        "summary": "Return the Inbox of unfiled scans, creating it if needed",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Group"
                 }
               }
             }
@@ -950,6 +989,193 @@
         }
       }
     },
+    "/documents/{documentId}/rename": {
+      "post": {
+        "summary": "Change only the document name",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 150
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/move": {
+      "post": {
+        "summary": "Move a document to another group; if that group has different fields, the PDF is read again, so poll until status leaves processing",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "groupId"
+                ],
+                "properties": {
+                  "groupId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/suggest-name": {
+      "post": {
+        "summary": "Read the PDF and suggest a filename following the group naming; nothing is saved",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
     "/groups/{groupId}/views": {
       "get": {
         "summary": "List the group's statistics views and filters",
@@ -1336,6 +1562,11 @@
                   "messages"
                 ],
                 "properties": {
+                  "conversationId": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "description": "Saved messages are filed under this conversation; a new one is started when omitted"
+                  },
                   "context": {
                     "type": "object",
                     "description": "What the user has open",
@@ -1345,6 +1576,22 @@
                       },
                       "documentId": {
                         "type": "string"
+                      },
+                      "groupIds": {
+                        "type": "array",
+                        "maxItems": 20,
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Every group the user chose for this chat; when sent, an open PDF does not add its own group back"
+                      },
+                      "attachedDocumentIds": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Scans attached to this message"
                       }
                     }
                   },
@@ -1427,6 +1674,93 @@
                               "string",
                               "null"
                             ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid RxLab token"
+          },
+          "404": {
+            "description": "Not found for this account"
+          },
+          "409": {
+            "description": "Busy or already handled"
+          },
+          "413": {
+            "description": "Size limit exceeded"
+          },
+          "422": {
+            "description": "Data does not match schema"
+          },
+          "503": {
+            "description": "Service not configured"
+          }
+        }
+      }
+    },
+    "/chat/messages": {
+      "get": {
+        "summary": "Return the most recent saved conversation, up to its last 100 messages",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "conversationId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "enum": [
+                              "user",
+                              "assistant"
+                            ]
+                          },
+                          "content": {
+                            "type": "string"
+                          },
+                          "activity": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "tool": {
+                                  "type": "string"
+                                },
+                                "detail": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "createdAt": {
+                            "type": "string"
                           }
                         }
                       }
@@ -1726,6 +2060,59 @@
         ],
         "additionalProperties": false
       },
+      "NewGroupInput": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "instructions": {
+            "default": "",
+            "type": "string",
+            "maxLength": 4000
+          },
+          "namingTemplate": {
+            "default": "{date}-{title}",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "extractAdditional": {
+            "default": false,
+            "type": "boolean"
+          },
+          "schema": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "parentId": {
+            "description": "Create this as a subgroup of that group",
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "instructions",
+          "namingTemplate",
+          "extractAdditional",
+          "schema"
+        ],
+        "additionalProperties": false
+      },
       "Group": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -1759,6 +2146,18 @@
           },
           "id": {
             "type": "string"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "group",
+              "inbox"
+            ]
           },
           "createdAt": {
             "type": "string"
@@ -1809,6 +2208,18 @@
           },
           "id": {
             "type": "string"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "group",
+              "inbox"
+            ]
           },
           "createdAt": {
             "type": "string"
@@ -2087,6 +2498,18 @@
                           "type": "string"
                         },
                         "additionalProperties": {}
+                      },
+                      "parentId": {
+                        "description": "Create this as a subgroup of that group",
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -2225,6 +2648,119 @@
                   "documentId",
                   "name",
                   "data"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "rename_document"
+                  },
+                  "documentId": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 150
+                  }
+                },
+                "required": [
+                  "action",
+                  "documentId",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "organize_documents"
+                  },
+                  "newGroups": {
+                    "default": [],
+                    "description": "Groups and subgroups to create first, parents before their children",
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "ref": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "description": "Your label for this new group. Moves and later new groups point to it."
+                        },
+                        "parent": {
+                          "description": "Makes this a subgroup: an existing group ID, or the ref of an earlier new group",
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        },
+                        "instructions": {
+                          "type": "string",
+                          "maxLength": 4000
+                        },
+                        "namingTemplate": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "extractAdditional": {
+                          "type": "boolean"
+                        },
+                        "schema": {
+                          "description": "Required without a parent. A subgroup that omits it uses its parent's fields, instructions, and naming.",
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": [
+                        "ref",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "moves": {
+                    "default": [],
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "documentId": {
+                          "type": "string"
+                        },
+                        "target": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "An existing group ID, or the ref of a new group"
+                        }
+                      },
+                      "required": [
+                        "documentId",
+                        "target"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "action",
+                  "newGroups",
+                  "moves"
                 ],
                 "additionalProperties": false
               }

@@ -1,3 +1,6 @@
+import { account, purgeAccounts } from '@/lib/account';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { after } from 'next/server';
 import { zipSync, strToU8 } from 'fflate';
@@ -6,12 +9,13 @@ import { principal } from '@/lib/auth';
 import { purgeExpiredGroups, Repository } from '@/lib/repository';
 import { ApiError, safeName } from '@/lib/contracts';
 import { getPDF, putPDF, removePDF, presignPDF, promoteUpload } from '@/lib/storage';
-import { chat, chatContext, draftSchema, processDocument, processUploadedDocument } from '@/lib/ai';
+import { chat, chatContext, draftSchema, processDocument, processUploadedDocument, suggestDocumentName } from '@/lib/ai';
 import { errorResponse, jsonBody } from '@/lib/http';
 import { db, expirePDFUploads } from '@/lib/db';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 async function cleanup() { try {
+    await purgeAccounts();
     await purgeExpiredGroups();
     await expirePDFUploads();
 }
@@ -31,6 +35,8 @@ async function route(req: Request, { params }: {
         const repo = new Repository(await principal(req));
         const p = (await params).path;
         const method = req.method;
+        if (p.join('/') === 'account' && ['GET','POST','DELETE'].includes(method)) return Response.json(await account(repo.owner,method));
+        if (p.length===2 && p[0]==='legal' && ['terms','privacy'].includes(p[1]) && method==='GET') return Response.json({markdown:await readFile(join(process.cwd(),'legal',p[1]+'.md'),'utf8')});
         if (p[0] === 'groups' && p.length === 1) {
             if (method === 'GET')
                 return Response.json(await repo.groups());
@@ -48,6 +54,8 @@ async function route(req: Request, { params }: {
                 return Response.json({ ok: true });
             }
         }
+        if (p.join('/') === 'inbox' && method === 'POST')
+            return Response.json(await repo.inbox());
         if (p[0] === 'deleted-groups') {
             if (p.length === 1 && method === 'GET')
                 return Response.json(await repo.deletedGroups());
@@ -158,6 +166,20 @@ async function route(req: Request, { params }: {
         if (p[0] === 'documents' && p.length === 3) {
             if (p[2] === 'process' && method === 'POST')
                 return Response.json(await processDocument(repo, p[1]));
+            if (p[2] === 'rename' && method === 'POST') {
+                const b = z.object({ name: z.string().trim().min(1).max(150) }).parse(await jsonBody(req));
+                const { storageKey, ...document } = await repo.renameDocument(p[1], b.name);
+                return Response.json(document);
+            }
+            if (p[2] === 'move' && method === 'POST') {
+                const b = z.object({ groupId: z.string().min(1) }).parse(await jsonBody(req));
+                const { document: { storageKey, ...document }, reread } = await repo.moveDocument(p[1], b.groupId);
+                if (reread)
+                    after(() => processUploadedDocument(repo, p[1]));
+                return Response.json(document);
+            }
+            if (p[2] === 'suggest-name' && method === 'POST')
+                return Response.json(await suggestDocumentName(repo, p[1]));
             if (p[2] === 'pdf' && method === 'GET') {
                 const d = await repo.document(p[1]);
                 return new Response(Buffer.from(await getPDF(d.storageKey)), { headers: { 'Content-Type': 'application/pdf', 'Cache-Control': 'private, no-store', 'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(d.name)}` } });
@@ -168,14 +190,26 @@ async function route(req: Request, { params }: {
             return Response.json(await draftSchema(b.prompt));
         }
         if (p.join('/') === 'chat' && method === 'POST') {
-            const b = z.object({ messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(8000) })).min(1).max(40), context: chatContext.optional() }).parse(await jsonBody(req));
-            return Response.json(await chat(repo, b.messages, b.context));
+            const b = z.object({ conversationId: z.string().min(1).max(64).optional(), messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(8000) })).min(1).max(40), context: chatContext.optional() }).parse(await jsonBody(req));
+            // Builds that predate saved chats send no ID, so each of their messages starts a conversation.
+            const conversationId = b.conversationId ?? randomUUID();
+            const last = b.messages[b.messages.length - 1];
+            // Saved first, so the user's message survives a failed reply.
+            if (last.role === 'user')
+                await repo.addChatMessage(conversationId, 'user', last.content);
+            const reply = await chat(repo, b.messages, b.context);
+            await repo.addChatMessage(conversationId, 'assistant', reply.text || 'I’ve prepared a change for your review.', reply.activity);
+            return Response.json(reply);
         }
+        if (p.join('/') === 'chat/messages' && method === 'GET')
+            return Response.json(await repo.latestConversation());
         if (p.join('/') === 'proposals' && method === 'GET')
             return Response.json(await repo.proposals());
         if (p[0] === 'proposals' && p.length === 2 && method === 'POST') {
             const b = z.object({ approve: z.boolean() }).parse(await jsonBody(req));
-            const result = await repo.resolveProposal(p[1], b.approve);
+            const { reread, ...result } = await repo.resolveProposal(p[1], b.approve);
+            if (reread.length)
+                after(() => Promise.all(reread.map(id => processUploadedDocument(repo, id))));
             await cleanup();
             return Response.json(result);
         }

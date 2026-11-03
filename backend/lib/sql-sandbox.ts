@@ -4,7 +4,7 @@ import { ApiError } from './contracts';
 export type SandboxData = { groups: Record<string, unknown>[]; documents: Record<string, unknown>[] };
 export type SQLParam = string | number | null;
 export type SQLResult = { columns: string[]; rows: Record<string, unknown>[] };
-export const sqlTables = 'documents(id, group_id, name, original_name, status, size, created_at, data, additional) and groups(id, name, instructions, created_at). data is the JSON of the schema fields and additional is the JSON of other facts; read them with json_extract(data, \'$.field\') and json_each. created_at is the upload time as ISO 8601. SQLite syntax. Named parameters look like :vendor. At most 1000 rows return.';
+export const sqlTables = 'documents(id, group_id, name, original_name, status, size, created_at, data, additional) and groups(id, parent_id, kind, name, instructions, created_at). parent_id is the group a subgroup sits inside, and kind is \'inbox\' for the Inbox. data is the JSON of the schema fields and additional is the JSON of other facts; read them with json_extract(data, \'$.field\') and json_each. created_at is the upload time as ISO 8601. SQLite syntax. Named parameters look like :vendor. At most 1000 rows return.';
 /**
  * Runs agent-written SQL on a private copy of only `data`. Turso is never exposed to it, so a
  * query cannot reach another account's rows however it is written.

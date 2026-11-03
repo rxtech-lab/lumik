@@ -20,6 +20,7 @@ async function addColumn(client: Client, table: string, column: string, definiti
 export async function migrate(client = db()) {
     await client.executeMultiple(`
     PRAGMA foreign_keys = ON;
+    CREATE TABLE IF NOT EXISTS account_deletions (owner TEXT PRIMARY KEY, delete_at INTEGER NOT NULL, completed INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL, instructions TEXT NOT NULL, naming_template TEXT NOT NULL, schema_json TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS groups_owner ON groups(owner);
     CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE, owner TEXT NOT NULL, name TEXT NOT NULL, original_name TEXT NOT NULL, storage_key TEXT NOT NULL, size INTEGER NOT NULL, status TEXT NOT NULL, data_json TEXT, error TEXT, processing_started_at TEXT, created_at TEXT NOT NULL);
@@ -29,10 +30,16 @@ export async function migrate(client = db()) {
     CREATE TABLE IF NOT EXISTS gc (storage_key TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS group_views (id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE, owner TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, spec_json TEXT NOT NULL, queries_json TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS group_views_group ON group_views(owner,group_id);
+    CREATE TABLE IF NOT EXISTS chat_messages (id TEXT PRIMARY KEY, owner TEXT NOT NULL, conversation_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, activity_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS chat_messages_owner ON chat_messages(owner,conversation_id,created_at);
   `);
   await addColumn(client, 'groups', 'extract_additional', 'INTEGER NOT NULL DEFAULT 0');
   await addColumn(client, 'documents', 'additional_json', 'TEXT');
   await addColumn(client, 'groups', 'deleted_at', 'TEXT');
+  await addColumn(client, 'groups', 'parent_id', 'TEXT');
+  await addColumn(client, 'groups', 'kind', "TEXT NOT NULL DEFAULT 'group'");
+  await client.execute('CREATE INDEX IF NOT EXISTS groups_parent ON groups(owner,parent_id)');
+  await client.execute("CREATE UNIQUE INDEX IF NOT EXISTS groups_inbox ON groups(owner) WHERE kind='inbox'");
 }
 
 export async function expirePDFUploads(client = db()) {
