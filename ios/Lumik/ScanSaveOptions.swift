@@ -32,8 +32,11 @@ enum ScanExport {
         }
         bitmap.setFillColor(CGColor(gray: 1, alpha: 1))
         bitmap.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        // PDF drawing transforms do not upscale pages to larger destination rectangles.
+        // Apply the pixel scale explicitly, then normalize rotation/origin in PDF points.
+        bitmap.scaleBy(x: CGFloat(width) / box.width, y: CGFloat(height) / box.height)
         bitmap.concatenate(page.getDrawingTransform(.mediaBox,
-          rect: CGRect(x: 0, y: 0, width: width, height: height), rotate: 0, preserveAspectRatio: true))
+          rect: box, rotate: 0, preserveAspectRatio: true))
         bitmap.drawPDFPage(page)
         let jpeg = NSMutableData()
         guard let image = bitmap.makeImage(),
@@ -65,6 +68,7 @@ struct ScanSaveOptions: View {
   var body: some View {
     NavigationStack {
       Form {
+        PDFProcessingPicker()
         Section("PDF Resolution") {
           Picker("Resolution", selection: $dpi) {
             Text("Original").tag(0)

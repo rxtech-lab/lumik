@@ -36,7 +36,7 @@ struct StatisticDetailView: View {
         ToolbarItem(placement: .primaryAction) {
           Menu {
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await load() } }
-            Button("Change with Buddy", systemImage: "sparkles") {
+            Button("Change with Lumik", systemImage: "sparkles") {
               store.askBuddy("Update the “\(view.title)” statistics view to ")
             }
             Divider()
@@ -63,7 +63,7 @@ struct StatisticDetailView: View {
     do {
       state = JSONRenderState(try await store.viewState(view))
     } catch {
-      if !Task.isCancelled { problem = error.localizedDescription }
+      if !isSilentCancellation(error) { problem = error.localizedDescription }
     }
   }
 }
@@ -106,7 +106,7 @@ struct FilterSheet: View {
         .task {
           do {
             state = JSONRenderState(try await store.viewState(view))
-          } catch { problem = error.localizedDescription }
+          } catch { if !isSilentCancellation(error) { problem = error.localizedDescription } }
         }
         .sheet(
           isPresented: $deleting,
@@ -208,7 +208,7 @@ struct ViewProposalPreview: View {
       .task {
         do {
           state = JSONRenderState(try await store.previewState(groupID: groupID, view: view))
-        } catch { problem = error.localizedDescription }
+        } catch { if !isSilentCancellation(error) { problem = error.localizedDescription } }
       }
   }
 }

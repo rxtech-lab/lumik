@@ -1,8 +1,9 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), group: vi.fn(), presign: vi.fn(), promote: vi.fn(), add: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), group: vi.fn(), presign: vi.fn(), promote: vi.fn(), add: vi.fn(), complete: vi.fn(), documents: vi.fn() }));
 vi.mock('../lib/auth', () => ({ principal: async () => 'alice' }));
 vi.mock('../lib/db', () => ({ db: () => ({ execute: mocks.execute }), expirePDFUploads: vi.fn() }));
 vi.mock('../lib/repository', () => ({ Repository: class {
+    complete = mocks.complete; documents = mocks.documents;
     owner = 'alice'; group = mocks.group; addDocument = mocks.add;
     async claimDocument() {}
     async document(id: string) { return { id, status: 'processing' }; }
@@ -59,4 +60,23 @@ it('completion retries reuse the existing document', async () => {
     expect((await request(['groups', 'g', 'uploads', 'id', 'complete'])).status).toBe(200);
     expect(mocks.add).not.toHaveBeenCalled();
     expect(mocks.promote).not.toHaveBeenCalled();
+});
+
+it('saves local fields and naming without scheduling cloud AI', async () => {
+    const { after } = await import('next/server');
+    mocks.group.mockResolvedValue({ id: 'g', schema: { type: 'object', properties: { total: { type: 'number' } }, required: ['total'], additionalProperties: false }, namingTemplate: '{title}', extractAdditional: false });
+    mocks.documents.mockResolvedValue([]);
+    mocks.complete.mockResolvedValue({ id: 'id', status: 'ready' });
+    mocks.execute.mockResolvedValueOnce({ rows: [{ expires_at: Date.now() + 60000, staging_key: 'staged.pdf', size: 5, name: 'Scan.pdf' }] });
+    const response = await request(['groups', 'g', 'uploads', 'id', 'complete'], { processing: 'apple', result: { title: 'Receipt', fields: { total: 42 } } });
+    expect(response.status).toBe(201);
+    expect(mocks.complete).toHaveBeenCalledWith('id', 'Receipt.pdf', { total: 42 }, null);
+    expect(after).not.toHaveBeenCalled();
+});
+it('rejects invalid local fields before promoting a PDF', async () => {
+    mocks.group.mockResolvedValue({ schema: { type: 'object', properties: { total: { type: 'number' } }, required: ['total'] } });
+    const response = await request(['groups', 'g', 'uploads', 'id', 'complete'], { processing: 'apple', result: { title: 'Receipt', fields: { total: 'invalid' } } });
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(mocks.promote).not.toHaveBeenCalled();
+    expect(mocks.add).not.toHaveBeenCalled();
 });

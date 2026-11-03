@@ -5,7 +5,7 @@
 
   struct ScanCaptureView: View {
     let group: ScanGroup
-    /// Set when scanning for Buddy, which takes each PDF and closes this when they are all sent.
+    /// Set when scanning for Lumik, which takes each PDF and closes this when they are all sent.
     var onUploaded: (@MainActor (ScanDocument) -> Void)? = nil
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -112,8 +112,10 @@
               }
               pageCount = current.pageCount
             case .failure(let failure):
-              error = failure.localizedDescription
-              Haptics.failure()
+              if !isSilentCancellation(failure) {
+                error = failure.localizedDescription
+                Haptics.failure()
+              }
             }
           }, cancel: { camera = false }).ignoresSafeArea()
         }
@@ -160,7 +162,9 @@
           while let data = documents.first {
             status = "Uploading \(total - documents.count + 1) of \(total)…"
             let prepared = try await Task.detached { try ScanExport.prepare(data, dpi: dpi) }.value
-            let uploaded = try await store.upload(prepared, name: "Scan.pdf", groupID: group.id)
+            let uploaded = try await store.upload(prepared, name: "Scan.pdf", groupID: group.id) { message in
+              status = message
+            }
             onUploaded?(uploaded)
             documents.removeFirst()
           }
@@ -172,9 +176,9 @@
             return
           }
         } catch {
-          self.error = error.localizedDescription
+          if !isSilentCancellation(error) { self.error = error.localizedDescription }
           status = nil
-          Haptics.failure()
+          if !isSilentCancellation(error) { Haptics.failure() }
         }
         uploading = false
         try? await Task.sleep(for: .seconds(3))

@@ -121,7 +121,7 @@ struct GroupView: Codable, Identifiable, Hashable, Sendable {
   var queries: JSONValue
 }
 struct ViewStateReply: Decodable, Sendable { var state: JSONValue }
-/// Documents narrowed by a saved filter or by Buddy.
+/// Documents narrowed by a saved filter or by Lumik.
 struct DocumentFilter: Hashable, Sendable {
   var title: String
   var documentIDs: Set<String>
@@ -182,4 +182,19 @@ struct ChatHistory: Decodable, Sendable {
 struct APIError: LocalizedError {
   let message: String
   var errorDescription: String? { message }
+}
+
+/// Cancellation is expected when navigating away, dismissing a picker, or stopping work.
+func isSilentCancellation(_ error: Error) -> Bool {
+  if Task.isCancelled || error is CancellationError { return true }
+  var current = error as NSError
+  for _ in 0..<8 {
+    if (current.domain == NSURLErrorDomain && current.code == NSURLErrorCancelled)
+      || (current.domain == NSCocoaErrorDomain && current.code == NSUserCancelledError) {
+      return true
+    }
+    guard let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
+    current = underlying
+  }
+  return false
 }

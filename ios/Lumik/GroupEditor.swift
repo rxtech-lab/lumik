@@ -21,7 +21,7 @@ struct GroupEditor: View {
       Form {
         Section("Group details") {
           TextField("Group name", text: $draft.name)
-          TextField("What should Buddy look for?", text: $draft.instructions, axis: .vertical)
+          TextField("What should Lumik look for?", text: $draft.instructions, axis: .vertical)
             .lineLimit(3...6)
         }
         if let parent {
@@ -43,7 +43,7 @@ struct GroupEditor: View {
           }.accessibilityIdentifier("schema-editor-link")
         } footer: {
           Text(
-            "Choose the fields to extract from every document in this group. Build your schema visually or describe it to Buddy."
+            "Choose the fields to extract from every document in this group. Build your schema visually or describe it to Lumik."
           )
         }
         Section {
@@ -51,7 +51,7 @@ struct GroupEditor: View {
             .accessibilityIdentifier("extract-additional")
         } footer: {
           Text(
-            "Buddy also collects anything else useful it finds in each PDF, beyond your fields, and designs a view for it. Applies to new PDFs, or to existing ones when you extract again."
+            "Lumik also collects anything else useful it finds in each PDF, beyond your fields, and designs a view for it. Applies to new PDFs, or to existing ones when you extract again."
           )
         }
         Section {
@@ -104,7 +104,7 @@ struct SchemaEditor: View {
     Menu {
       Button("Add field", systemImage: "plus", action: addField)
       if !reviewingDraft {
-        Button("Describe with Buddy", systemImage: "sparkles") { agent = true }
+        Button("Describe with Lumik", systemImage: "sparkles") { agent = true }
         Button("Edit JSON Schema", systemImage: "curlybraces") { raw = true }
       }
     } label: {
@@ -121,7 +121,7 @@ struct SchemaEditor: View {
         ContentUnavailableView {
           Label("Choose your fields", systemImage: "list.bullet.rectangle")
         } description: {
-          Text("Add a field, or ask Buddy to build a schema from your description.")
+          Text("Add a field, or ask Lumik to build a schema from your description.")
         } actions: {
           Button("Add field", systemImage: "plus", action: addField).buttonStyle(.borderedProminent)
         }
@@ -352,7 +352,7 @@ struct SchemaAgentView: View {
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .navigationTitle(reviewing ? "Review fields" : "Ask Buddy")
+      .navigationTitle(reviewing ? "Review fields" : "Ask Lumik")
       .safeAreaInset(edge: .bottom) {
         HStack {
           if reviewing {
@@ -406,7 +406,7 @@ struct JSONEditor: View {
               save(value)
               Haptics.success()
               dismiss()
-            } catch { self.error = error.localizedDescription }
+            } catch { if !isSilentCancellation(error) { self.error = error.localizedDescription } }
           }
         }
       }.alert(

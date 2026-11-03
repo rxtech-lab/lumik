@@ -75,7 +75,7 @@ struct MoveDocumentView: View {
         if store.groupTree.isEmpty {
           ContentUnavailableView(
             "Create a group first", systemImage: "folder.badge.plus",
-            description: Text("Close this sheet and create a group, or ask Buddy to organize this PDF."))
+            description: Text("Close this sheet and create a group, or ask Lumik to organize this PDF."))
         }
       }
       .navigationTitle("Move PDF")

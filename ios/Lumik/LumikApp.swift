@@ -68,16 +68,16 @@ struct RootView: View {
           TabView(selection: $tab) {
             Tab("Library", systemImage: "square.stack.3d.up", value: 0) { LibraryView() }
             Tab("Account", systemImage: "person.crop.circle", value: 2) { AccountView() }
-            // Wider screens keep Buddy in the right-hand column instead.
+            // Wider screens keep Lumik in the right-hand column instead.
             if sizeClass == .compact {
               #if compiler(>=6.4)
               if #available(iOS 27.0, *) {
-                Tab("Buddy", systemImage: "sparkles", value: 1, role: .prominent) { ChatView() }
+                Tab("Lumik", systemImage: "sparkles", value: 1, role: .prominent) { ChatView() }
               } else {
-                Tab("Buddy", systemImage: "sparkles", value: 1, role: .search) { ChatView() }
+                Tab("Lumik", systemImage: "sparkles", value: 1, role: .search) { ChatView() }
               }
               #else
-              Tab("Buddy", systemImage: "sparkles", value: 1, role: .search) { ChatView() }
+              Tab("Lumik", systemImage: "sparkles", value: 1, role: .search) { ChatView() }
               #endif
             }
           }.onChange(of: tab) { Haptics.tap() }
@@ -252,7 +252,7 @@ private struct LegalDocumentView: View {
     struct Document: Decodable { let markdown: String }
     failure = nil
     do { markdown = try JSONDecoder().decode(Document.self, from: await store.request("legal/" + document)).markdown }
-    catch { failure = error.localizedDescription }
+    catch { if !isSilentCancellation(error) { failure = error.localizedDescription } }
   }
 }
 

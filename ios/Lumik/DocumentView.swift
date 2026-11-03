@@ -48,7 +48,7 @@ struct DocumentDetailView: View {
           document = updated
         }
       }
-      // Buddy and the right-hand details follow whichever PDF is on screen.
+      // Lumik and the right-hand details follow whichever PDF is on screen.
       .onChange(of: document, initial: true) {
         store.openDocument = document
         if isLoading { store.loadingDocumentID = document.id }
@@ -113,7 +113,7 @@ struct DocumentDetailView: View {
         isPresented: $exporting, document: exportFile, contentType: .pdf,
         defaultFilename: document.name
       ) { result in
-        if case .failure(let error) = result { store.error = error.localizedDescription }
+        if case .failure(let error) = result { if !isSilentCancellation(error) { store.error = error.localizedDescription } }
       }
   }
   private var actionsMenu: some View {
@@ -221,7 +221,7 @@ struct DocumentDetailView: View {
         preview = .failed("This file appears to be damaged.")
       }
     } catch {
-      if !Task.isCancelled { preview = .failed(error.localizedDescription) }
+      if !isSilentCancellation(error) { preview = .failed(error.localizedDescription) }
     }
   }
 }
@@ -241,7 +241,7 @@ struct DocumentDetailsForm<Hero: View>: View {
         Section {
           HStack(spacing: 12) {
             ProgressView()
-            Text("Reading this PDF to fill your group’s fields and rename it…")
+            Text("AI analysis in progress · Reading PDF content, extracting your group’s fields, and generating a filename. This continues in the background.")
               .foregroundStyle(.secondary)
           }
         }

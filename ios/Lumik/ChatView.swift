@@ -1,11 +1,11 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Buddy as its own screen: the iPhone tab and the sheet opened from a group or PDF.
+/// Lumik as its own screen: the iPhone tab and the sheet opened from a group or PDF.
 struct ChatView: View {
   var body: some View {
     NavigationStack {
-      ChatThread().navigationTitle("Buddy")
+      ChatThread().navigationTitle("Lumik")
         #if os(iOS)
           .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -14,6 +14,7 @@ struct ChatView: View {
 }
 /// The conversation. Screens and the right-hand panel all show this same thread.
 struct ChatThread: View {
+  @State private var importBatch: PDFImportBatch?
   @Environment(AppStore.self) private var store
   @State private var proposal: Proposal?
   @State private var scanInbox: ScanGroup?
@@ -31,7 +32,7 @@ struct ChatThread: View {
           if store.sending {
             HStack(spacing: 10) {
               ProgressView().controlSize(.small)
-              Text("Buddy is working…").font(.callout).foregroundStyle(.secondary)
+              Text("Lumik is working…").font(.callout).foregroundStyle(.secondary)
             }
           }
           ForEach(store.proposals) { p in
@@ -70,10 +71,16 @@ struct ChatThread: View {
         ScanCaptureView(group: inbox) { store.attachScan($0) }
       #endif
     }
+    .sheet(item: $importBatch) { batch in
+      PDFImportOptions(urls: batch.urls) { await importPDFs(.success(batch.urls)) }.fullSheet()
+    }
     .fileImporter(
       isPresented: $importingPDFs, allowedContentTypes: [.pdf], allowsMultipleSelection: true
     ) { result in
-      Task { await importPDFs(result) }
+      switch result {
+      case .success(let urls): importBatch = PDFImportBatch(urls: urls)
+      case .failure(let error): if !isSilentCancellation(error) { store.error = error.localizedDescription }
+      }
     }
   }
   private var header: some View {
@@ -97,7 +104,7 @@ struct ChatThread: View {
       .buttonStyle(.plain)
       .glassEffect(.regular.interactive(), in: .circle)
       .fixedSize()
-      .accessibilityLabel("Buddy actions")
+      .accessibilityLabel("Lumik actions")
     }.padding(.horizontal, 8).padding(.vertical, 4)
   }
   private var welcome: some View {
@@ -170,7 +177,7 @@ struct ChatThread: View {
           .accessibilityHint("Scan or import PDFs, or add a group")
           .disabled(preparingScan || store.sending)
         TextField(
-          hasScans ? "Organize these PDFs" : "Ask Buddy…", text: $store.composerDraft, axis: .vertical
+          hasScans ? "Organize these PDFs" : "Ask Lumik…", text: $store.composerDraft, axis: .vertical
         ).textFieldStyle(.plain).lineLimit(1...6).padding(.vertical, 6)
         Button {
           store.composerDraft = ""
@@ -184,8 +191,8 @@ struct ChatThread: View {
     }.padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
       .padding(.horizontal, 12).padding(.bottom, 10).frame(maxWidth: 840)
   }
-  /// Imported PDFs wait in the Inbox like scans, so Buddy can file them the same way.
-  private func importPDFs(_ result: Result<[URL], Error>) async {
+  /// Imported PDFs wait in the Inbox like scans, so Lumik can file them the same way.
+  private func importPDFs(_ result: Result<[URL], Error>) async -> Bool {
     await store.perform("Uploading your PDFs…", success: "Uploaded. Reading your PDFs…") {
       let urls = try result.get()
       if urls.isEmpty { return }
@@ -206,18 +213,17 @@ struct ChatThread: View {
     do {
       scanInbox = try await store.prepareInbox()
     } catch {
-      store.error = error.localizedDescription
-      Haptics.failure()
+      if !isSilentCancellation(error) { store.error = error.localizedDescription; Haptics.failure() }
     }
   }
   func loadProposals() async {
     if store.isPreview { return }
     do { store.proposals = try await store.fetch([Proposal].self, "proposals") } catch {
-      store.error = error.localizedDescription
+      if !isSilentCancellation(error) { store.error = error.localizedDescription }
     }
   }
 }
-/// Says what Buddy is working on, so "this" and "these" are never a guess. The open group and PDF
+/// Says what Lumik is working on, so "this" and "these" are never a guess. The open group and PDF
 /// join on their own; either can be removed, and the composer's add menu brings in more groups.
 private struct ChatContextBar: View {
   @Environment(AppStore.self) private var store
@@ -273,7 +279,7 @@ private struct ContextChip: View {
       .background(Color.buddyGreen.opacity(0.12), in: Capsule())
   }
 }
-/// A scanned or imported PDF on its way to Buddy. Removing it only takes it off this message; it stays in the Inbox.
+/// A scanned or imported PDF on its way to Lumik. Removing it only takes it off this message; it stays in the Inbox.
 private struct ScanAttachmentChip: View {
   let document: ScanDocument
   @Environment(AppStore.self) private var store

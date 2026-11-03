@@ -25,7 +25,7 @@ export async function purgeExpiredGroups(client: Client = db()) {
         { sql: 'DELETE FROM groups WHERE deleted_at IS NOT NULL AND deleted_at<=?', args },
     ], 'write');
 }
-/** Fields the inbox reads from each scan, so Buddy can file it without opening the PDF again. */
+/** Fields the inbox reads from each scan, so Lumik can file it without opening the PDF again. */
 const inboxSchema: Schema = { type: 'object', properties: {
     document_type: { type: 'string', description: 'What kind of document this is, such as invoice, receipt, contract, or letter' },
     summary: { type: 'string', description: 'One sentence saying who it is from and what it is about' },

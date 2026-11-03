@@ -287,7 +287,7 @@ describe('organize proposals', () => {
         expect(await alice.groups()).toHaveLength(1);
         expect((await alice.document(a.id)).groupId).toBe(group.id);
     });
-    it('rejects a plan it could not carry out, so Buddy can fix it', async () => {
+    it('rejects a plan it could not carry out, so Lumik can fix it', async () => {
         const group = await alice.createGroup(draft);
         const theirs = await bob.createGroup(draft);
         const doc = await alice.addDocument(group.id, 'doc-a', 'a.pdf', 100);

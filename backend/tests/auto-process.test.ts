@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createClient, type Client } from '@libsql/client';
 import { generateText } from 'ai';
-import { chat, processUploadedDocument, suggestDocumentName } from '../lib/ai';
+import { chat, processUploadedDocument, suggestDocumentName, suggestDocumentGroup } from '../lib/ai';
 import { migrate } from '../lib/db';
 import { Repository } from '../lib/repository';
 vi.mock('ai', async original => ({ ...await original<typeof import('ai')>(), generateText: vi.fn() }));
@@ -21,9 +21,9 @@ async function claimedUpload() {
     await repo.claimDocument(doc.id);
     return doc.id;
 }
-describe('Buddy and scans', () => {
+describe('Lumik and scans', () => {
     const systemPrompt = () => String(vi.mocked(generateText).mock.lastCall?.[0].system);
-    it('tells Buddy about attached scans and what the Inbox holds', async () => {
+    it('tells Lumik about attached scans and what the Inbox holds', async () => {
         vi.mocked(generateText).mockResolvedValue({ text: 'ok', steps: [] } as never);
         const inbox = await repo.inbox();
         const attached = await repo.addDocument(inbox.id, 'scan-new', 'Scan.pdf', 100);
@@ -117,5 +117,29 @@ describe('automatic processing after upload', () => {
         await expect(processUploadedDocument(repo, id)).resolves.toBeUndefined();
         expect(await repo.document(id)).toMatchObject({ status: 'failed', name: 'Scan.pdf' });
         await expect(repo.claimDocument(id)).resolves.toBeUndefined();
+    });
+});
+
+describe('PDF destination suggestions', () => {
+    it('suggests an owned subgroup without moving the saved document', async () => {
+        const id = await claimedUpload();
+        await repo.complete(id, 'Acme.pdf', { vendor: 'Acme' });
+        const original = await repo.document(id);
+        const target = await repo.createGroup({ ...draft, name: 'Acme', parentId: original.groupId });
+        vi.mocked(generateText).mockResolvedValue({ output: { groupId: target.id, reason: 'Acme invoices belong here.' } } as never);
+        expect(await suggestDocumentGroup(repo, id)).toEqual({ suggestion: { groupId: target.id, reason: 'Acme invoices belong here.' } });
+        expect((await repo.document(id)).groupId).toBe(original.groupId);
+    });
+    it('rejects foreign, invented, current and inbox destinations', async () => {
+        const id = await claimedUpload();
+        await repo.complete(id, 'Acme.pdf', { vendor: 'Acme' });
+        const original = await repo.document(id);
+        await repo.createGroup({ ...draft, name: 'Other' });
+        const foreign = await new Repository('bob', client).createGroup(draft);
+        const inbox = await repo.inbox();
+        for (const groupId of [foreign.id, 'invented', original.groupId, inbox.id, null]) {
+            vi.mocked(generateText).mockResolvedValue({ output: { groupId, reason: 'Match' } } as never);
+            expect(await suggestDocumentGroup(repo, id)).toEqual({ suggestion: null });
+        }
     });
 });

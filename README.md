@@ -12,11 +12,11 @@ A native SwiftUI document workspace for iPhone, iPad, iPhone Duo, and Mac, with 
 - AI SDK + Vercel AI Gateway using `openai/gpt-6-luna` for PDF extraction, content-based naming, schema drafting, and agent chat.
 - PDF preview, extraction retry, editable extracted data, renaming by hand or with an AI suggestion from the document's context menu, and group ZIP export with a JSON manifest.
 - Subgroups inside any group, with PDFs moved between groups, subgroups, and parents from each PDF's menu. A subgroup starts with its parent's fields, so those moves keep extracted data; moving to a group with different fields reads the PDF again and renames it.
-- Buddy's message field shows what the chat is about: the open group and PDF, which can be removed, plus any more groups you add from its add menu. These focus Buddy without limiting what it can reach.
-- Scanning or importing PDFs from Buddy's add menu. They wait in an Inbox, which appears in the library while it holds documents, and Buddy proposes where to file them, creating groups or subgroups if needed. The whole plan is one proposal, applied all at once.
+- Lumik's message field shows what the chat is about: the open group and PDF, which can be removed, plus any more groups you add from its add menu. These focus Lumik without limiting what it can reach.
+- Scanning or importing PDFs from Lumik's add menu. They wait in an Inbox, which appears in the library while it holds documents, and Lumik proposes where to file them, creating groups or subgroups if needed. The whole plan is one proposal, applied all at once.
 - Agent and MCP changes are stored as proposals. A dedicated review sheet and native confirmation apply each proposal once.
 - Dedicated sheets for editing/deletion, dropdown action menus, overlay operation feedback, mobile haptics, and full-height Mac sheets.
-- Adaptive split navigation for larger screens and Duo; iOS 27’s prominent Buddy tab, with a search-role fallback on iOS 26.
+- Adaptive split navigation for larger screens and Duo; iOS 27’s prominent Lumik tab, with a search-role fallback on iOS 26.
 
 ## Backend setup
 
@@ -67,7 +67,7 @@ The Debug-only `--ui-preview` launch argument shows a fixture library without co
 
 See [backend/openapi.json](backend/openapi.json) for the REST contract; regenerate it with `bun run api:spec`. All document APIs require `Authorization: Bearer <RxLab access token>`; there is no development authentication bypass.
 
-The stateless Streamable HTTP MCP endpoint is **`POST /api/mcp`**, authenticated with the same bearer token. It provides `list_groups`, `list_documents`, `analyze_document`, `propose_change`, and `list_proposals`. Proposed mutations appear in the app’s Buddy tab; MCP cannot approve its own changes. Configure the MCP client to obtain/refresh a valid RxLab token; dynamic OAuth client registration is not implemented.
+The stateless Streamable HTTP MCP endpoint is **`POST /api/mcp`**, authenticated with the same bearer token. It provides `list_groups`, `list_documents`, `analyze_document`, `propose_change`, and `list_proposals`. Proposed mutations appear in the app’s Lumik tab; MCP cannot approve its own changes. Configure the MCP client to obtain/refresh a valid RxLab token; dynamic OAuth client registration is not implemented.
 
 ## Validation
 
@@ -98,7 +98,7 @@ Backend tests use real temporary libSQL databases and locally signed JWTs. They 
 - Scanning needs supported physical hardware. Simulator builds cannot prove camera detection quality or haptic behavior.
 - Group exports currently cap total source PDFs at 100 MB. Individual uploads have no app limit, though a single S3 PUT tops out at 5 GB. Larger archives need a streaming/background export job.
 - The filename template names a group's first PDFs. Once it has processed or renamed documents, new PDFs follow the pattern of its 20 most recent names instead, so hand-edited names carry forward and later template edits have no effect until those names change.
-- Processing can be retried after a three-minute stale lease. Every upload is extracted and renamed automatically, and the app polls until it finishes; there is no background worker or push completion notification yet. Failed documents can be retried from the document menu, or Buddy can analyze a document and propose its fields for review.
+- Processing can be retried after a three-minute stale lease. Every upload is extracted and renamed automatically, and the app polls until it finishes; there is no background worker or push completion notification yet. Failed documents can be retried from the document menu, or Lumik can analyze a document and propose its fields for review.
 - Metadata refreshes on screen load and pull-to-refresh; offline caching and real-time cross-device updates are not implemented. Chat history is held in memory; pending proposals persist in Turso for 24 hours.
 
 Reference patterns came from `~/Desktop/sticker-gen` (RxLab auth) and `~/Desktop/rxlab/rxcode/RxCodeMobile` (Duo navigation and prominent agent tab). Model and SDK references: [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), [AI SDK structured output](https://ai-sdk.dev/docs/ai-sdk-core/generating-structured-data), [Vercel AI Gateway](https://vercel.com/docs/ai-gateway/models-and-providers).
@@ -124,3 +124,12 @@ prevents existing credentials from recreating a deleted account.
 `GET /api/v1/legal/terms` and `/api/v1/legal/privacy` serve Markdown from
 `backend/legal`. The bundled text is initial draft copy and requires product/legal
 review before publication. Native clients render these documents in dedicated sheets.
+
+### PDF processing choice
+
+The Save PDFs and Upload PDFs sheets offer a remembered Model dropdown:
+
+- **Cloud — Server Model** uses the backend's configured `AI_MODEL` (Vercel OIDC remains supported).
+- **Apple Intelligence — On Device** reads PDF text with PDFKit, recognizes scanned pages with Vision, and uses Foundation Models for fields, additional facts, and naming. Previous group filenames inform the name. The server validates fields against the group schema and saves the result without calling cloud AI. PDFs still upload through presigned storage URLs for sync.
+
+Apple Intelligence must be available on the device. Local processing currently rejects inputs beyond its conservative 10,000-byte prompt budget instead of truncating pages or falling back to cloud. Choose Cloud explicitly for larger documents. This choice applies to upload processing; existing server actions such as Extract Again, AI rename, and regrouping still use cloud AI.
