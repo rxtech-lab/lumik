@@ -38,7 +38,7 @@ struct RemoteMCPView: View {
         }
         Section("Connected clients") {
           Label("Client management is not available yet", systemImage: "info.circle")
-          Text("This server currently requires a bearer token. OAuth sign-in, the connected-client list and disconnect controls are not yet supported.")
+          Text("Connect using OAuth in your MCP client. The connected-client list is not yet available in Lumik.")
             .font(.footnote).foregroundStyle(.secondary)
         }
       }.formStyle(.grouped)
@@ -72,7 +72,7 @@ struct RemoteMCPView: View {
           }
         }
         Section("Authentication") {
-          Text("A valid Lumik bearer token is required. Copying the URL does not authorize access. Client authorization through OAuth is not available yet.")
+          Text("Choose OAuth in your MCP client, sign in with RxLab, then approve the requested Lumik permissions. If asked for a registration method, choose Dynamic Client Registration.")
         }
         #if DEBUG
         Section("Development server") {
