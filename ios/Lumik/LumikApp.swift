@@ -25,6 +25,15 @@ import Sparkle
       }
     }
     #endif
+    #if os(macOS)
+    Settings {
+      TabView {
+        AccountView().tabItem { Label("Account", systemImage: "person.crop.circle") }
+        RemoteMCPView().tabItem { Label("Remote MCP", systemImage: "network") }
+      }.frame(width: 660, height: 600)
+        .environment(store).tint(.buddyGreen).actionFeedback()
+    }
+    #endif
   }
 }
 extension Color {
@@ -185,6 +194,7 @@ struct AccountView: View {
   @State private var confirm = false
   @State private var deletion = false
   @State private var legal: String?
+  @State private var remoteMCP = false
   var body: some View {
     NavigationStack {
       Form {
@@ -210,6 +220,15 @@ struct AccountView: View {
             Text("Includes documents in the Recycle Bin.").font(.footnote).foregroundStyle(.secondary)
           } else { Button("Load storage usage") { Task { await reload() } } }
         }
+        Section("Integrations") {
+          Button { Haptics.tap(); remoteMCP = true } label: {
+            HStack {
+              Label("Remote MCP", systemImage: "network")
+              Spacer()
+              Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }.contentShape(Rectangle())
+          }.buttonStyle(.plain)
+        }
         Section("Legal") {
           Button("Terms of Use") { Haptics.tap(); legal = "terms" }
           Button("Privacy Policy") { Haptics.tap(); legal = "privacy" }
@@ -224,7 +243,15 @@ struct AccountView: View {
           }
           Button("Sign out", role: .destructive) { Haptics.tap(); confirm = true }
         }
-      }.formStyle(.grouped).navigationTitle("Account")
+      }.formStyle(.grouped)
+        #if os(macOS)
+        .frame(maxWidth: 680)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        #endif
+        .navigationTitle("Account")
+        .sheet(isPresented: $remoteMCP) {
+          RemoteMCPView(showsClose: true).fullSheet().actionFeedback()
+        }
         .task { await reload() }
         .refreshable { await reload() }
         .confirmationDialog("Sign out of Lumik?", isPresented: $confirm) {
