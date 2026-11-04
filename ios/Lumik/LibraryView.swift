@@ -232,7 +232,10 @@ struct GroupDetailView: View {
         } else if store.visibleDocuments.isEmpty {
           noMatchingDocuments.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-          MacDocumentTable(documents: store.visibleDocuments) { documentActions($0) }
+          MacDocumentTable(documents: store.visibleDocuments, sortOrder: Binding(get: { store.documentSortOrder }, set: { store.documentSortOrder = $0 })) { documentActions($0) }
+            .onChange(of: store.documentSortOrder) {
+              Task { await store.loadGroupPage(group.id) }
+            }
         }
       }
     }

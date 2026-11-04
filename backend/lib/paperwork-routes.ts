@@ -1,3 +1,4 @@
+import { parseDocumentSort } from './document-sort';
 import { randomUUID } from 'node:crypto';
 import { after } from 'next/server';
 import { z } from 'zod';
@@ -37,7 +38,7 @@ export async function paperworkRoute(repo: Repository, req: Request, p: string[]
         (p[0] === 'groups' && p[2] === 'overview' && p.length === 3))) {
         const [groups, requests, overview] = await Promise.all([
             repo.groups(), forms.signingRequests(),
-            p[0] === 'groups' ? forms.overview(p[1]) : Promise.resolve({ documents: [], views: [], forms: [] }),
+            p[0] === 'groups' ? forms.overview(p[1], parseDocumentSort(req.url)) : Promise.resolve({ documents: [], views: [], forms: [] }),
         ]);
         return Response.json({ ...overview, groups, requests });
     }

@@ -97,12 +97,12 @@
   /// Finder-style list: click selects, double-click or Return opens, and headers sort.
   struct MacDocumentTable<Actions: View>: View {
     let documents: [ScanDocument]
+    @Binding var sortOrder: [KeyPathComparator<ScanDocument>]
     @ViewBuilder let actions: (ScanDocument) -> Actions
-    @State private var sortOrder = [KeyPathComparator(\ScanDocument.createdAt, order: .reverse)]
     @State private var selection: ScanDocument.ID?
     @State private var opened: ScanDocument?
     var body: some View {
-      Table(documents.sorted(using: sortOrder), selection: $selection, sortOrder: $sortOrder) {
+      Table(documents, selection: $selection, sortOrder: $sortOrder) {
         TableColumn("Name", value: \.name) { MacDocumentNameCell(document: $0) }
         TableColumn("Date Added", value: \.createdAt) { Text($0.addedDayText).foregroundStyle(.secondary) }
           .width(min: 100, ideal: 120, max: 160)

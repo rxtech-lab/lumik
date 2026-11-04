@@ -46,6 +46,14 @@ route('/chat/messages', 'get', 'Return the most recent saved conversation, up to
 route('/proposals', 'get', 'List pending proposals, expiring after 24 hours', { type: 'array', items: ref('Proposal') });
 route('/proposals/{proposalId}', 'post', 'Approve or reject a proposal exactly once', object, { type: 'object', required: ['approve'], properties: { approve: { type: 'boolean' } } });
 route('/groups/{groupId}/overview', 'get', 'Read groups, signing requests, and the selected group documents, views, and filled forms in one request', ref('GroupOverview'));
+for (const path of ['/groups/{groupId}/documents', '/groups/{groupId}/overview']) {
+    const operation = paths[path].get as { parameters: unknown[] };
+    operation.parameters.push(
+        { name: 'sortBy', in: 'query', schema: { type: 'string', enum: ['name', 'createdAt', 'size'], default: 'createdAt' } },
+        { name: 'sortDirection', in: 'query', schema: { type: 'string', enum: ['asc', 'desc'], default: 'desc' }, description: 'ID breaks ties in the same direction.' },
+    );
+}
+
 route('/documents/{documentId}/workspace', 'get', 'Read a PDF page in one database query: the document, versions, form templates, and filled forms, with presigned download URLs', ref('Workspace'));
 route('/documents/{documentId}/form-template', 'post', 'Return the current version\'s form, creating it the first time: PDF form fields found by the app are mapped exactly, otherwise AI finds the blanks. Also returns a draft to fill', { type: 'object', properties: { template: ref('FormTemplate'), form: ref('FilledForm') } }, ref('TemplateRequest'), 201);
 route('/form-templates/{templateId}', 'patch', 'Change a form\'s sections, fields, and where they land on the page', object, ref('TemplateEdit'));

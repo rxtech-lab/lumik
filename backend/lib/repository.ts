@@ -1,3 +1,4 @@
+import { documentOrder, type DocumentSort } from './document-sort';
 import { randomUUID } from 'node:crypto';
 import type { Client, Row } from '@libsql/client';
 import { db, documentChildrenCleanup, emptySigningRequests } from './db';
@@ -78,7 +79,7 @@ export class Repository {
     async updateGroup(id: string, input: unknown) { const g = groupInput.parse(input); if ((await this.group(id)).kind === 'inbox')
         throw new ApiError(422, 'The Inbox cannot be edited'); await this.client.execute({ sql: 'UPDATE groups SET name=?,instructions=?,naming_template=?,schema_json=?,extract_additional=? WHERE id=? AND owner=?', args: [g.name, g.instructions, g.namingTemplate, JSON.stringify(g.schema), g.extractAdditional ? 1 : 0, id, this.owner] }); return this.group(id); }
     /** One statement: a missing group returns no row, and a group without documents one row of NULLs. */
-    async documents(groupId: string) { const r = await this.client.execute({ sql: 'SELECT d.* FROM groups g LEFT JOIN documents d ON d.group_id=g.id AND d.owner=g.owner WHERE g.id=? AND g.owner=? AND g.deleted_at IS NULL ORDER BY d.created_at DESC', args: [groupId, this.owner] }); if (!r.rows.length)
+    async documents(groupId: string, sort: Partial<DocumentSort> = {}) { const r = await this.client.execute({ sql: `SELECT d.* FROM groups g LEFT JOIN documents d ON d.group_id=g.id AND d.owner=g.owner WHERE g.id=? AND g.owner=? AND g.deleted_at IS NULL ORDER BY ${documentOrder(sort)}`, args: [groupId, this.owner] }); if (!r.rows.length)
         throw new ApiError(404, 'Group not found'); return r.rows.filter(row => row.id !== null).map(document); }
     async document(id: string) { const r = await this.client.execute({ sql: 'SELECT d.* FROM documents d JOIN groups g ON g.id=d.group_id WHERE d.id=? AND d.owner=? AND g.deleted_at IS NULL', args: [id, this.owner] }); if (!r.rows[0])
         throw new ApiError(404, 'Document not found'); return document(r.rows[0]); }
