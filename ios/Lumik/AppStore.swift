@@ -137,6 +137,13 @@ import SwiftUI
     return documents.filter { documentFilter.documentIDs.contains($0.id) }
   }
   private var refreshTask: Task<Void, Error>?
+  var documentSortOrder = [KeyPathComparator(\ScanDocument.createdAt, order: .reverse)]
+  private var documentSortQuery: String {
+    let sort = documentSortOrder.first
+    let field = sort?.keyPath == \ScanDocument.name ? "name"
+      : sort?.keyPath == \ScanDocument.size ? "size" : "createdAt"
+    return "sortBy=\(field)&sortDirection=\(sort?.order == .forward ? "asc" : "desc")"
+  }
   private var documentLoadID = UUID()
   var documentPoll: Task<Void, Never>?
   init() {
@@ -153,6 +160,12 @@ import SwiftUI
         redirectURI: "scannerbuddy://oauth/callback", scopes: ["openid"],
         appleNoncePath: nil, appleNativeSignInPath: nil,
         keychainServiceName: "app.rxlab.scannerbuddy.auth"), tokenStorage: tokens)
+  }
+  private func requestURL(_ path: String) -> URL {
+    let parts = path.split(separator: "?", maxSplits: 1)
+    var components = URLComponents(url: baseURL.appendingPathComponent("api/v1/" + String(parts[0])), resolvingAgainstBaseURL: false)!
+    if parts.count == 2 { components.percentEncodedQuery = String(parts[1]) }
+    return components.url!
   }
   func request(
     _ path: String, method: String = "GET", body: Data? = nil,
@@ -178,7 +191,7 @@ import SwiftUI
     guard let token = tokens.getAccessToken() else {
       throw APIError(message: "Please sign in again.")
     }
-    var req = URLRequest(url: baseURL.appendingPathComponent("api/v1/" + path))
+    var req = URLRequest(url: requestURL(path))
     req.httpMethod = method
     req.httpBody = body
     req.timeoutInterval = path.hasSuffix("/form-template") && method == "POST" ? 365 : 125
@@ -323,6 +336,7 @@ import SwiftUI
   }
   func loadDocuments(_ id: String) async {
     if selectedGroupID != id {
+      documents = []
       documentFilter = nil
       dismissedContextGroupID = nil
     }
@@ -352,11 +366,10 @@ import SwiftUI
     let loadID = UUID()
     documentLoadID = loadID
     documentPoll?.cancel()
-    documents = []
-    loading = true
+    loading = documents.isEmpty
     defer { if documentLoadID == loadID { loading = false } }
     do {
-      let result = try await fetch([ScanDocument].self, "groups/\(id)/documents")
+      let result = try await fetch([ScanDocument].self, "groups/\(id)/documents?\(documentSortQuery)")
       if selectedGroupID == id && documentLoadID == loadID && !Task.isCancelled {
         documents = result
         pollProcessingDocuments(id)
@@ -388,7 +401,7 @@ import SwiftUI
     loading = documents.isEmpty
     defer { if documentLoadID == loadID { loading = false } }
     do {
-      let result = try await fetch(GroupOverview.self, "groups/\(id)/overview")
+      let result = try await fetch(GroupOverview.self, "groups/\(id)/overview?\(documentSortQuery)")
       if selectedGroupID == id && documentLoadID == loadID && !Task.isCancelled {
         groups = result.groups
         signingRequests = result.requests
@@ -412,7 +425,7 @@ import SwiftUI
       for _ in 0..<64 {
         try? await Task.sleep(for: .seconds(3))
         guard let self, !Task.isCancelled, self.selectedGroupID == id else { return }
-        guard let result = try? await self.fetch([ScanDocument].self, "groups/\(id)/documents"),
+        guard let result = try? await self.fetch([ScanDocument].self, "groups/\(id)/documents?\(documentSortQuery)"),
           !Task.isCancelled, self.selectedGroupID == id
         else { continue }
         let previous = self.documents

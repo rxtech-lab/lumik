@@ -1,3 +1,4 @@
+import { documentOrder, type DocumentSort } from './document-sort';
 import { randomUUID } from 'node:crypto';
 import type { Client, Row } from '@libsql/client';
 import { ApiError, safeName, type Document, type FormSection } from './contracts';
@@ -63,9 +64,9 @@ export class Forms {
     }
 
     /** The group page: its documents, views, and forms in one statement. */
-    async overview(groupId: string) {
+    async overview(groupId: string, sort: Partial<DocumentSort> = {}) {
         const r = await this.client.execute({ sql: `SELECT g.id, g.parent_id,
-            ${array(`${documentJSON} FROM documents d WHERE d.group_id=g.id AND d.owner=g.owner`, 'd.created_at DESC')} documents_json,
+            ${array(`${documentJSON} FROM documents d WHERE d.group_id=g.id AND d.owner=g.owner`, documentOrder(sort))} documents_json,
             ${array(`${viewJSON} FROM group_views v WHERE v.group_id=g.id AND v.owner=g.owner`, 'v.created_at')} views_json,
             ${array(`${formJSON(false)} FROM ${formTables} WHERE d.group_id=g.id AND d.owner=g.owner AND f.owner=g.owner`, 'f.updated_at DESC')} forms_json
             FROM groups g WHERE g.id=? AND g.owner=? AND g.deleted_at IS NULL`, args: [groupId, this.owner] });

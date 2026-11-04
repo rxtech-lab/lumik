@@ -1,3 +1,4 @@
+import { parseDocumentSort } from '@/lib/document-sort';
 import { validateLocalExtraction, saveLocalExtraction } from '@/lib/local-extraction';
 import { account, purgeAccounts } from '@/lib/account';
 import { readFile } from 'node:fs/promises';
@@ -115,7 +116,7 @@ async function route(req: Request, { params }: {
         }
         if (p[0] === 'groups' && p[2] === 'documents' && p.length === 3) {
             if (method === 'GET')
-                return Response.json((await repo.documents(p[1])).map(({ storageKey, ...d }) => d));
+                return Response.json((await repo.documents(p[1], parseDocumentSort(req.url))).map(({ storageKey, ...d }) => d));
             if (method === 'POST') {
                 const form = await req.formData();
                 const localValue = form.get('localResult');

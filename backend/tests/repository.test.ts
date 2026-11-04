@@ -1,3 +1,5 @@
+import { Forms } from '../lib/forms';
+import { parseDocumentSort } from '../lib/document-sort';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -335,5 +337,31 @@ describe('moving groups', () => {
         await expect(bob.moveGroup(a.id, null)).rejects.toMatchObject({ status: 404 });
         const foreign = await bob.createGroup(draft);
         await expect(alice.moveGroup(a.id, foreign.id)).rejects.toMatchObject({ status: 404 });
+    });
+});
+
+describe('document ordering', () => {
+    it('orders both list and overview with deterministic ties and preserves ownership', async () => {
+        const group = await alice.createGroup(draft);
+        await alice.addDocument(group.id, 'a', 'Zulu.pdf', 30);
+        await alice.addDocument(group.id, 'b', 'alpha.pdf', 10);
+        await alice.addDocument(group.id, 'c', 'Alpha.pdf', 10);
+        await client.execute({ sql: 'UPDATE documents SET created_at=? WHERE group_id=?', args: ['2026-01-01', group.id] });
+        const forms = new Forms('alice', client);
+        for (const [sortBy, ascending] of [
+            ['name', ['b', 'c', 'a']], ['size', ['b', 'c', 'a']], ['createdAt', ['a', 'b', 'c']],
+        ] as const) {
+            for (const sortDirection of ['asc', 'desc'] as const) {
+                const sort = { sortBy, sortDirection };
+                const expected = sortDirection === 'asc' ? [...ascending] : [...ascending].reverse();
+                expect((await alice.documents(group.id, sort)).map(d => d.id)).toEqual(expected);
+                expect((await forms.overview(group.id, sort)).documents.map(d => d.id)).toEqual(expected);
+                await expect(bob.documents(group.id, sort)).rejects.toMatchObject({ status: 404 });
+            }
+        }
+        expect((await alice.documents(group.id)).map(d => d.id)).toEqual(['c', 'b', 'a']);
+        expect(parseDocumentSort('https://example.test')).toEqual({ sortBy: 'createdAt', sortDirection: 'desc' });
+        expect(() => parseDocumentSort('https://example.test?sortBy=invalid')).toThrow();
+        expect(() => parseDocumentSort('https://example.test?sortDirection=invalid')).toThrow();
     });
 });
