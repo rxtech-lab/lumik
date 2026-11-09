@@ -9,7 +9,7 @@
         "@aws-sdk/client-s3": "^3.1161.0",
         "@aws-sdk/s3-request-presigner": "^3.1161.0",
         "@json-render/core": "0.21.4",
-        "@json-render/react": "0.21.4",
+        "@json-render/react": "0.22.0",
         "@libsql/client": "^0.18.0",
         "@modelcontextprotocol/sdk": "^1.32.2",
         "@next/env": "16.4.4",
@@ -209,7 +209,7 @@
 
     "@json-render/core": ["@json-render/core@0.21.4", "", { "dependencies": { "zod": "^4.3.6" } }, "sha512-UqjpdDOmr7a9ISZisgQvgeKuBpiNQesS7PNgcstwTBlutMbgS/5fbNThvpEk4E35eMe2bpBVzwOPuaNY3xthNw=="],
 
-    "@json-render/react": ["@json-render/react@0.21.4", "", { "dependencies": { "@json-render/core": "0.21.4" }, "peerDependencies": { "react": "^19.2.3" } }, "sha512-pCOhhgpBQBZV8NDLx0TTMapeWqGzDGPDgaIcYg9xHm35XglqxkcG2QgzzhE/VUSz3uqkWW0s8mCYO/jGP/hZHQ=="],
+    "@json-render/react": ["@json-render/react@0.22.0", "", { "dependencies": { "@json-render/core": "0.22.0" }, "peerDependencies": { "react": "^19.2.3" } }, "sha512-dUBSPn/OZGJGwYiVUVv6qk14AGvfIutKgw7EKJejof14Ft/UPKsoV7/SkF5xIbGIWcM/vk3U4UnNm3NgPnOSSQ=="],
 
     "@libsql/client": ["@libsql/client@0.18.0", "", { "dependencies": { "@libsql/core": "^0.18.0", "@libsql/hrana-client": "^0.10.0", "js-base64": "^3.7.5", "libsql": "^0.5.28", "promise-limit": "^2.7.0" } }, "sha512-zMCCo58vv7w27j7+cnt/GW+X6/Rih6cHZ86PKi0AxCMOqMfrVgG9OZ5lW2bDMJhSeOjsv2szH2nJF3A9l36UmA=="],
 
@@ -680,6 +680,8 @@
     "zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
 
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
+
+    "@json-render/react/@json-render/core": ["@json-render/core@0.22.0", "", { "dependencies": { "zod": "^4.3.6" } }, "sha512-BIfJ2V3bLYETetBu2KWoxxRPU5cSAf77dDTBgqaV54kEAfyHta1psPJgNk0fDcB3FCrnCZ5KO/X41VDkrNSYgw=="],
 
     "body-parser/content-type": ["content-type@2.1.0", "", {}, "sha512-mj7UPXE0jaqaOsukNZRUEfEi2AcL7C/vwmwcHV0O97eO1E1pxBZuyjlZrx5seTaNBg1U6+o35wpa35Qfcc+7ag=="],
 
